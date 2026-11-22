@@ -53,8 +53,9 @@ test( "Opens the badge window once and shows the status", function( assert ) {
 	assert.ok( this.openWindow.calledOnce, "Opens a window" );
 	const [ url, options ] = this.openWindow.firstCall.args;
 	assert.strictEqual( url, BADGE_FILE, "Loads the badge page" );
-	assert.propContains(
-		options,
+	const { frame, transparent, always_on_top, show_in_taskbar, focus } = options;
+	assert.propEqual(
+		{ frame, transparent, always_on_top, show_in_taskbar, focus },
 		{
 			frame: false,
 			transparent: true,
