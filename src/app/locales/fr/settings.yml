@@ -121,6 +121,15 @@ streaming:
         description: Reduit le délai du stream pour les chaînes qui streament avec le mode latence basse.
         notes: Soyez conscient que l'activation de cette option définira également la valeur de live-edge sur 2 si elle est supérieure, ce qui peut entraîner une mise en mémoire tampon pour les streams réguliers. Pour atteindre la latence la plus faible possible, il faut encore peaufiner les paramètres de mise en cache / mise en mémoire tampon du lecteur.
         checkbox: Enable low latency streaming
+    twitch-adblock:
+        title: Twitch ad blocking
+        description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
+        notes: The proxy servers see which channel you watch and your IP address. If all proxies fail, the stream plays directly from Twitch, where Streamlink still filters out ad segments.
+        checkbox: Block Twitch ads using playlist proxies
+        servers: Proxy servers (comma separated)
+        placeholder: httpproxy://host:port,https://host
+        missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
+        documentation: About the streamlink-ttvlol plugin and its proxy servers.
     hls-live-edge:
         title: HLS live edge
         description: Diminuer la valeur réduira la latence du flux, mais peut également provoquer une mise en mémoire tampon. Selon la configuration du lecteur, il peut y avoir une autre couche de mémoire tampon.

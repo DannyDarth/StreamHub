@@ -141,6 +141,15 @@ streaming:
         description: 頻道如果有開啟低延遲模式，會降低串流的延遲
         notes: 此設定會將 live-edge 限制為 2 (如果原設定較高的話)，可能會對一般模式的頻道造成緩衝現象。為了要達成低延遲串流，可能需要調整播放器的快取/緩衝設定。
         checkbox: 啟用低延遲串流
+    twitch-adblock:
+        title: Twitch ad blocking
+        description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
+        notes: The proxy servers see which channel you watch and your IP address. If all proxies fail, the stream plays directly from Twitch, where Streamlink still filters out ad segments.
+        checkbox: Block Twitch ads using playlist proxies
+        servers: Proxy servers (comma separated)
+        placeholder: httpproxy://host:port,https://host
+        missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
+        documentation: About the streamlink-ttvlol plugin and its proxy servers.
     hls-live-edge:
         title: HLS live edge
         description: 數值越小串流延遲越小，但可能會造成播放器緩衝

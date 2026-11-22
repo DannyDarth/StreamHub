@@ -121,6 +121,15 @@ streaming:
         description: "Уменьшает задержку для каналов, которые транслируют в режиме низкой задержки."
         notes: "Имейте в виду, что включение этой опции установит значение \"live-edge\" равным 2, если оно было выше. Это может вызвать буферизацию для обычных стримов. Чтобы достичь минимально возможной задержки, необходимо выполнить дополнительную настройку собственных настроек кеширования/буферизации плеера."
         checkbox: "Включить просмотр с низкой задержкой"
+    twitch-adblock:
+        title: Twitch ad blocking
+        description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
+        notes: The proxy servers see which channel you watch and your IP address. If all proxies fail, the stream plays directly from Twitch, where Streamlink still filters out ad segments.
+        checkbox: Block Twitch ads using playlist proxies
+        servers: Proxy servers (comma separated)
+        placeholder: httpproxy://host:port,https://host
+        missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
+        documentation: About the streamlink-ttvlol plugin and its proxy servers.
     hls-live-edge:
         title: "HLS live edge"
         description: "Уменьшение значения уменьшит задержку на стриме, но также может вызвать буферизацию. В зависимости от настроеек плеера может быть еще один уровень буферизации."

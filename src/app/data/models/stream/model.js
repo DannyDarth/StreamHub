@@ -5,6 +5,7 @@ import attr from "ember-data/attr";
 import Model from "ember-data/model";
 import { belongsTo } from "ember-data/relationships";
 import { twitch as twitchConfig } from "config";
+import findTwitchAdblockPlugin from "services/streaming/provider/twitch-adblock";
 import qualities from "./-qualities";
 
 
@@ -131,6 +132,29 @@ export default Model.extend( /** @class Stream */ {
 
 	webbrowser: settingsBool( "settings.streaming.webbrowser" ),
 	webbrowser_headless: settingsBool( "settings.streaming.webbrowser_headless" ),
+
+	// Twitch ad-blocking via the streamlink-ttvlol plugin's playlist proxies.
+	// Empty (no parameters set) if disabled, if no proxies are configured,
+	// or if the plugin isn't available, since stock Streamlink would reject the parameters.
+	twitchAdblockPlugin: computed(function() {
+		if ( !get( this, "settings.streaming.twitch_proxy" ) ) { return null; }
+		return findTwitchAdblockPlugin();
+	}).volatile(),
+
+	twitchProxyPlaylist: computed(function() {
+		if ( !get( this, "twitchAdblockPlugin" ) ) { return ""; }
+		return String( get( this, "settings.streaming.twitch_proxy_playlist" ) || "" )
+			.split( "," )
+			.map( server => server.trim() )
+			.filter( server => server.length )
+			.join( "," );
+	}).volatile(),
+
+	twitchPluginDir: computed(function() {
+		const plugin = get( this, "twitchAdblockPlugin" );
+		if ( !plugin || !plugin.pluginDir || !get( this, "twitchProxyPlaylist" ) ) { return ""; }
+		return plugin.pluginDir;
+	}).volatile(),
 
 	kill() {
 		if ( this.spawn ) {

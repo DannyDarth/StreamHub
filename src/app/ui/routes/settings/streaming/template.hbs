@@ -142,6 +142,38 @@
 {{/settings-row}}
 
 {{#settings-row
+	(t "settings.streaming.twitch-adblock.title")
+	(t "settings.streaming.twitch-adblock.description")
+	icon="fa-ban"
+	notes=(t "settings.streaming.twitch-adblock.notes")
+}}
+	{{check-box
+		(t "settings.streaming.twitch-adblock.checkbox")
+		checked=model.streaming.twitch_proxy
+	}}
+	<dl>
+		<dt>{{t "settings.streaming.twitch-adblock.servers"}}</dt>
+		<dd>
+			{{input
+				type="text"
+				value=model.streaming.twitch_proxy_playlist
+				classNames="col-xs-12"
+				placeholder=(t "settings.streaming.twitch-adblock.placeholder")
+				disabled=(bool-not model.streaming.twitch_proxy)
+			}}
+		</dd>
+	</dl>
+	{{#unless twitchAdblockPluginFound}}
+		<p class="small text-danger">
+			{{t "settings.streaming.twitch-adblock.missing"}}
+		</p>
+	{{/unless}}
+	<p class="small">
+		{{#external-link url=twitchAdblockDocs}}{{t "settings.streaming.twitch-adblock.documentation"}}{{/external-link}}
+	</p>
+{{/settings-row}}
+
+{{#settings-row
 	(t "settings.streaming.hls-live-edge.title")
 	(t "settings.streaming.hls-live-edge.description")
 	icon="fa-bolt"

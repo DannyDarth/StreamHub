@@ -7,10 +7,12 @@ import {
 	ATTR_STREAMING_PLAYER_INPUT_PASSTHROUGH as inputPassthrough
 } from "data/models/settings/streaming/fragment";
 import { platform } from "utils/node/platform";
+import findTwitchAdblockPlugin from "services/streaming/provider/twitch-adblock";
 
 
 const {
 	"client-integrity-docs": contentClientIntegrityDocs,
+	"twitch-adblock": { "docs-url": twitchAdblockDocs },
 	providers
 } = streamingConfig;
 const { playerInput: contentStreamingPlayerInput } = SettingsStreaming;
@@ -28,6 +30,12 @@ export default Controller.extend({
 	providers,
 	contentClientIntegrityDocs,
 	contentStreamingPlayerInput,
+	twitchAdblockDocs,
+
+	// whether the streamlink-ttvlol plugin was found (bundled or installed by the user)
+	twitchAdblockPluginFound: computed(function() {
+		return !!findTwitchAdblockPlugin();
+	}),
 
 	contentStreamingProvider: computed(function() {
 		return Object.keys( providers )

@@ -119,6 +119,15 @@ streaming:
         description: 降低开启低延迟模式的频道的串流延迟。
         notes: 请注意，启用此选项也会将延迟时间设置为2，如果该值更高，则可能会导致常规直播缓冲。为了实现最低的延迟，需要进一步调整播放器自身的缓存/缓冲设置。
         checkbox: 启用低延迟模式
+    twitch-adblock:
+        title: Twitch ad blocking
+        description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
+        notes: The proxy servers see which channel you watch and your IP address. If all proxies fail, the stream plays directly from Twitch, where Streamlink still filters out ad segments.
+        checkbox: Block Twitch ads using playlist proxies
+        servers: Proxy servers (comma separated)
+        placeholder: httpproxy://host:port,https://host
+        missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
+        documentation: About the streamlink-ttvlol plugin and its proxy servers.
     hls-live-edge:
         title: HLS延迟时间
         description: 降低该值可以减少直播延迟，但也可能会导致缓冲。根据播放器设置，可能还会有另一层缓冲。

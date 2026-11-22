@@ -11,6 +11,13 @@ on:
       - 'package.json'
       - 'yarn.lock'
       - '.github/workflows/streamhub-installer.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'build/**'
+      - 'package.json'
+      - 'yarn.lock'
+      - '.github/workflows/streamhub-installer.yml'
 
 jobs:
   installer:
@@ -37,6 +44,24 @@ jobs:
 
       - name: Build StreamHub for Windows x64
         run: yarn grunt clean:tmp_prod webpack:prod compile:win64
+
+      - name: Bundle streamlink-ttvlol Twitch ad-blocking plugin
+        shell: powershell
+        env:
+          # https://github.com/2bc4/streamlink-ttvlol/releases/tag/8.3.0-20260701
+          TTVLOL_VERSION: '8.3.0-20260701'
+          TTVLOL_SHA256: '4d465380159ec59f7caef6cb6a28368bbbbd3abcf80886138182184c30f2fad0'
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:GITHUB_WORKSPACE 'build/releases/streamlink-twitch-gui/win64/streamlink-plugins'
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $file = Join-Path $dir 'twitch.py'
+          Invoke-WebRequest -UseBasicParsing -OutFile $file `
+            -Uri "https://github.com/2bc4/streamlink-ttvlol/releases/download/$($env:TTVLOL_VERSION)/twitch.py"
+          $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
+          if ($hash -ne $env:TTVLOL_SHA256) { throw "streamlink-ttvlol checksum mismatch: $hash" }
+          Copy-Item 'build/resources/streamlink-plugins/LICENSE-streamlink-ttvlol.txt' $dir
+          Write-Host "Bundled streamlink-ttvlol $($env:TTVLOL_VERSION) ($hash)"
 
       - name: Install NSIS
         shell: powershell

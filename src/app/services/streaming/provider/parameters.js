@@ -27,6 +27,21 @@ export const parameters = [
 		"stream.low_latency"
 	),
 	new Parameter(
+		"--plugin-dirs",
+		null,
+		"stream.twitchPluginDir"
+	),
+	new Parameter(
+		"--twitch-proxy-playlist",
+		null,
+		"stream.twitchProxyPlaylist"
+	),
+	// if every proxy fails, use Twitch directly; Streamlink still filters out ad segments then
+	new Parameter(
+		"--twitch-proxy-playlist-fallback",
+		"stream.twitchProxyPlaylist"
+	),
+	new Parameter(
 		"--webbrowser",
 		null,
 		"stream.webbrowser"

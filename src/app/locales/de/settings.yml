@@ -141,6 +141,15 @@ streaming:
         description: Reduziert die Streamverzögerung für Kanäle, welche im Niedriglatenzmodus streamen.
         notes: Bitte beachte, dass durch die Aktivierung dieser Option auch der live-edge Wert auf 2 gesetzt wird falls er höher ist, was zu Buffering für Streams mit regulärer Latenz führen kann. Um die geringstmögliche Latenz zu erreichen, müssen die Cache-/Buffereinstellungen des Players selbst weiter optimiert werden.
         checkbox: Streaming mit geringer Latenz aktivieren
+    twitch-adblock:
+        title: Twitch ad blocking
+        description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
+        notes: The proxy servers see which channel you watch and your IP address. If all proxies fail, the stream plays directly from Twitch, where Streamlink still filters out ad segments.
+        checkbox: Block Twitch ads using playlist proxies
+        servers: Proxy servers (comma separated)
+        placeholder: httpproxy://host:port,https://host
+        missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
+        documentation: About the streamlink-ttvlol plugin and its proxy servers.
     hls-live-edge:
         title: HLS live edge
         description: Das Senken des Wertes reduziert die Streamverzögerung, kann allerdings Buffering verursachen. Je nach Playerkonfiguration existieren weitere Bufferebenen.

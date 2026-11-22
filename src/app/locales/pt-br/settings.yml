@@ -130,6 +130,15 @@ streaming:
         description: Reduz o atraso da transmissão para os canais que transmitem em modo de baixa latência.
         notes: Atenção ao ativar esta opção pois irá configurar o valor do live-edge para 2 (se for alto), o que pode causar uma bufferização para transmissões regulares. Para alcançar a menor latência possível, serão necessários ajustes nas configurações de cache ou buffer dos tocadores de vídeo.
         checkbox: Ativar transmissão de baixa latência
+    twitch-adblock:
+        title: Twitch ad blocking
+        description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
+        notes: The proxy servers see which channel you watch and your IP address. If all proxies fail, the stream plays directly from Twitch, where Streamlink still filters out ad segments.
+        checkbox: Block Twitch ads using playlist proxies
+        servers: Proxy servers (comma separated)
+        placeholder: httpproxy://host:port,https://host
+        missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
+        documentation: About the streamlink-ttvlol plugin and its proxy servers.
     hls-live-edge:
         title: HLS live edge
         description: Diminuir o valor irá diminuir a latência da transmissão, mas podem causar bufferização. Dependendo da configuração do tocador, podem haver outros níveis de bufferização.
