@@ -6,6 +6,7 @@ Run with the built plugin: STREAMHUB_TWITCH_PLUGIN=path/to/twitch.py pytest buil
 
 import importlib.util
 import os
+import sys
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -15,6 +16,8 @@ from streamlink.stream.hls import parse_m3u8
 
 spec = importlib.util.spec_from_file_location("streamhub_twitch", os.environ["STREAMHUB_TWITCH_PLUGIN"])
 twitch = importlib.util.module_from_spec(spec)
+# dataclasses look up their module in sys.modules while the module is executed
+sys.modules[spec.name] = twitch
 spec.loader.exec_module(twitch)
 
 T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
