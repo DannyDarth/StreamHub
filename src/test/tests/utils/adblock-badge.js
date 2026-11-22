@@ -4,6 +4,7 @@ import { EventEmitter } from "events";
 
 import {
 	AdblockBadge,
+	placeBadge,
 	BADGE_FILE,
 	BADGE_WIDTH,
 	BADGE_MARGIN,
@@ -37,7 +38,11 @@ module( "utils/adblock-badge", {
 			.callsFake( ( url, options, callback ) => callback( this.win ) );
 		this.badge = new AdblockBadge({
 			openWindow: this.openWindow,
-			getWorkArea: () => ({ x: 0, y: 0, width: 1920, height: 1040 })
+			getScreens: () => [{
+				bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+				work_area: { x: 0, y: 0, width: 1920, height: 1040 },
+				scaleFactor: 1
+			}]
 		});
 	},
 	afterEach() {
@@ -72,7 +77,10 @@ test( "Opens the badge window once and shows the status", function( assert ) {
 		this.win.moveTo.calledWithExactly( 1920 - BADGE_WIDTH - BADGE_MARGIN, BADGE_MARGIN ),
 		"Moves to the top-right corner"
 	);
-	assert.ok( this.win.window.setStatus.calledWithExactly( status ), "Renders the status" );
+	assert.ok(
+		this.win.window.setStatus.calledWithExactly( status ),
+		"Renders the status"
+	);
 	assert.ok( this.win.show.calledOnce, "Shows the window" );
 
 	this.badge.show({ level: "warning", label: "Ad got through", detail: "" });
@@ -121,4 +129,77 @@ test( "Reopens after the window was closed", function( assert ) {
 
 	this.badge.show({ level: "success", label: "Ad-free", detail: "" });
 	assert.ok( this.openWindow.calledTwice, "Opens a new window" );
+});
+
+
+
+test( "Moves onto the video player's window before showing", async function( assert ) {
+	let moved;
+	const moveToPlayer = sinon.stub().returns( new Promise( resolve => { moved = resolve; } ) );
+	const badge = new AdblockBadge({
+		openWindow: this.openWindow,
+		getScreens: () => [],
+		moveToPlayer
+	});
+
+	badge.show({ level: "success", label: "Ad-free", detail: "", pid: 1234 });
+	this.win.emit( "loaded" );
+	await Promise.resolve();
+
+	assert.ok( moveToPlayer.calledWithExactly( 1234 ), "Moves the badge to Streamlink's player" );
+	assert.notOk( this.win.show.called, "Stays hidden while moving" );
+
+	moved( true );
+	for ( let i = 0; i < 10; i++ ) { await Promise.resolve(); }
+	assert.ok( this.win.show.calledOnce, "Shows the badge once moved" );
+});
+
+test( "Shows the badge even if the player's window can't be found", async function( assert ) {
+	const badge = new AdblockBadge({
+		openWindow: this.openWindow,
+		getScreens: () => [],
+		moveToPlayer: sinon.stub().rejects( new Error( "fail" ) )
+	});
+
+	badge.show({ level: "success", label: "Ad-free", detail: "", pid: 1234 });
+	this.win.emit( "loaded" );
+	for ( let i = 0; i < 10; i++ ) { await Promise.resolve(); }
+
+	assert.ok( this.win.show.calledOnce, "Shows the badge" );
+});
+
+
+module( "utils/adblock-badge placeBadge", function() {
+	const screens = [
+		{
+			bounds: { x: 0, y: 0, width: 1920, height: 1080 },
+			work_area: { x: 0, y: 0, width: 1920, height: 1040 }
+		},
+		{
+			bounds: { x: 1920, y: 0, width: 2560, height: 1440 },
+			work_area: { x: 1920, y: 0, width: 2560, height: 1400 }
+		}
+	];
+
+	test( "Monitor StreamHub is on", function( assert ) {
+		assert.propEqual(
+			placeBadge( screens, { x: 3000, y: 500 } ),
+			{ x: 1920 + 2560 - BADGE_WIDTH - BADGE_MARGIN, y: BADGE_MARGIN },
+			"Top-right of the second monitor"
+		);
+		assert.propEqual(
+			placeBadge( screens, { x: 500, y: 500 } ),
+			{ x: 1920 - BADGE_WIDTH - BADGE_MARGIN, y: BADGE_MARGIN },
+			"Top-right of the first monitor"
+		);
+	});
+
+	test( "Fallbacks", function( assert ) {
+		assert.propEqual(
+			placeBadge( screens, null ),
+			{ x: 1920 - BADGE_WIDTH - BADGE_MARGIN, y: BADGE_MARGIN },
+			"First monitor without a point"
+		);
+		assert.strictEqual( placeBadge( [], null ), null, "No screens" );
+	});
 });

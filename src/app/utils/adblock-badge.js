@@ -1,5 +1,5 @@
 /**
- * A small badge in the top-right corner of the main screen, above the video player,
+ * A small badge in the top-right corner of the video player's window,
  * showing what Twitch ad blocking is doing (see assets/adblock-badge.html).
  * It fades out after a few seconds and reappears whenever the status changes.
  */
@@ -13,17 +13,53 @@ export const BADGE_DURATION_WARNING = 12000;
 const FADE_TIME = 300;
 
 
+/**
+ * Where to put the badge when the video player's window can't be found:
+ * the top-right corner of the monitor StreamHub is on (or the first monitor).
+ * @param {Object[]} screens NW.js screens: {bounds, work_area}
+ * @param {{x, y}|null} point e.g. the center of StreamHub's window
+ * @returns {{x: number, y: number}|null}
+ */
+export function placeBadge( screens, point ) {
+	if ( !screens || !screens.length ) { return null; }
+
+	const contains = ({ x, y, width, height }) =>
+		   point.x >= x && point.x < x + width
+		&& point.y >= y && point.y < y + height;
+	const screen = point && screens.find( ({ bounds }) => contains( bounds ) ) || screens[0];
+	const area = screen.work_area || screen.bounds;
+
+	return {
+		x: Math.round( area.x + area.width - BADGE_WIDTH - BADGE_MARGIN ),
+		y: Math.round( area.y + BADGE_MARGIN )
+	};
+}
+
+
 export class AdblockBadge {
 	/**
 	 * @param {Object} deps
 	 * @param {Function} deps.openWindow (url, options, callback) => void, like nw.Window.open
-	 * @param {Function} deps.getWorkArea () => {x, y, width, height} of the main screen
+	 * @param {Function} deps.getScreens () => NW.js screens
+	 * @param {Function} deps.getFallbackPoint () => {x, y} center of StreamHub's window, or null
+	 * @param {Function} [deps.moveToPlayer] (pid) => Promise<boolean>, moves the badge window
+	 *   onto the video player's window
 	 * @param {Function} [deps.setTimeout]
 	 * @param {Function} [deps.clearTimeout]
 	 */
-	constructor({ openWindow, getWorkArea, setTimeout: st, clearTimeout: ct }) {
+	constructor({
+		openWindow,
+		getScreens,
+		getFallbackPoint,
+		moveToPlayer,
+		setTimeout: st,
+		clearTimeout: ct
+	}) {
 		this.openWindow = openWindow;
-		this.getWorkArea = getWorkArea;
+		this.moveToPlayer = moveToPlayer || null;
+		this.renderId = 0;
+		this.getScreens = getScreens;
+		this.getFallbackPoint = getFallbackPoint || ( () => null );
 		this.setTimeout = st || ( ( fn, ms ) => setTimeout( fn, ms ) );
 		this.clearTimeout = ct || ( id => clearTimeout( id ) );
 		this.win = null;
@@ -34,7 +70,7 @@ export class AdblockBadge {
 	}
 
 	/**
-	 * @param {{level: string, label: string, detail: string}} status
+	 * @param {{level: string, label: string, detail: string, pid?: number}} status
 	 */
 	show( status ) {
 		this.status = status;
@@ -103,14 +139,35 @@ export class AdblockBadge {
 		const { win, status } = this;
 		if ( !win || !status ) { return; }
 
-		const area = this.getWorkArea();
-		if ( area ) {
-			win.moveTo(
-				Math.round( area.x + area.width - BADGE_WIDTH - BADGE_MARGIN ),
-				Math.round( area.y + BADGE_MARGIN )
-			);
+		const renderId = ++this.renderId;
+		this._clearTimer();
+		win.window.setStatus({ level: status.level, label: status.label, detail: status.detail });
+
+		// first the monitor StreamHub is on, then (Windows) onto the video player's window
+		const position = placeBadge( this.getScreens(), this.getFallbackPoint() );
+		if ( position ) {
+			win.moveTo( position.x, position.y );
 		}
-		win.window.setStatus( status );
+		if ( !status.pid || !this.moveToPlayer ) {
+			this._reveal();
+			return;
+		}
+
+		// stay hidden until moved, so the badge doesn't appear on the wrong monitor first
+		Promise.resolve()
+			.then( () => this.moveToPlayer( status.pid ) )
+			.catch( () => false )
+			.then( () => {
+				if ( renderId === this.renderId && this.status === status ) {
+					this._reveal();
+				}
+			});
+	}
+
+	_reveal() {
+		const { win, status } = this;
+		if ( !win || !status ) { return; }
+
 		win.setAlwaysOnTop( true );
 		win.show();
 
@@ -147,11 +204,16 @@ export function getAdblockBadge() {
 	if ( !instance ) {
 		const { Window } = require( "nwjs/nwGui" );
 		const { default: screen } = require( "nwjs/Screen" );
+		const { moveBadgeToPlayerWhenReady } = require( "utils/player-window" );
 		instance = new AdblockBadge({
 			openWindow: ( url, options, callback ) => Window.open( url, options, callback ),
-			getWorkArea() {
-				const main = screen.screens && screen.screens[0];
-				return main ? main.work_area : null;
+			getScreens: () => screen.screens || [],
+			moveToPlayer: pid => moveBadgeToPlayerWhenReady( pid ),
+			getFallbackPoint() {
+				const main = Window.get();
+				return main
+					? { x: main.x + main.width / 2, y: main.y + main.height / 2 }
+					: null;
 			}
 		});
 	}

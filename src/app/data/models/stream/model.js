@@ -277,6 +277,8 @@ export default Model.extend( /** @class Stream */ {
 
 		badge.show({
 			stream: this,
+			// Streamlink's process: the badge is moved onto its video player's window
+			pid: this.spawn && this.spawn.pid,
 			level,
 			label: intl.t( `modal.streaming.adblock.badge.${key}` ),
 			detail: intl.t( "modal.streaming.adblock.badge.detail", {
