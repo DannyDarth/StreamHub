@@ -4,6 +4,7 @@ import isAborted from "../is-aborted";
 import spawn from "../spawn";
 import { parameters } from "../provider/parameters";
 import parseError from "./parse-error";
+import parseAdblockEvent from "./adblock-events";
 import StreamOutputBuffer from "utils/StreamOutputBuffer";
 import Parameter from "utils/parameters/Parameter";
 
@@ -115,6 +116,12 @@ export default async function( stream, provider, player, onSuccess ) {
 
 				stream.pushLog( "stdOut", line );
 
+				// show what Twitch ad blocking is doing in the stream window
+				const adblockEvent = parseAdblockEvent( line );
+				if ( adblockEvent && typeof stream.recordAdblockEvent === "function" ) {
+					stream.recordAdblockEvent( adblockEvent );
+				}
+
 				// ads must not interrupt the stream: try the next playlist proxy instead
 				if (
 					   !switchingProxy
@@ -124,6 +131,9 @@ export default async function( stream, provider, player, onSuccess ) {
 				) {
 					switchingProxy = true;
 					stream.pushLog( "stdOut", msgProxySwitch );
+					if ( typeof stream.recordAdblockEvent === "function" ) {
+						stream.recordAdblockEvent({ type: "reconnecting" });
+					}
 					child.kill();
 					return;
 				}

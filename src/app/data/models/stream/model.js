@@ -1,4 +1,4 @@
-import { get, set, computed, observer } from "@ember/object";
+import { get, set, setProperties, computed, observer } from "@ember/object";
 import { alias } from "@ember/object/computed";
 import { inject as service } from "@ember/service";
 import attr from "ember-data/attr";
@@ -6,6 +6,7 @@ import Model from "ember-data/model";
 import { belongsTo } from "ember-data/relationships";
 import { twitch as twitchConfig } from "config";
 import findTwitchAdblockPlugin from "services/streaming/provider/twitch-adblock";
+import { getAdblockBadge } from "utils/adblock-badge";
 import qualities from "./-qualities";
 
 
@@ -78,6 +79,8 @@ export default Model.extend( /** @class Stream */ {
 	settings: service(),
 	/** @type {StreamingService} */
 	streaming: service(),
+	/** @type {IntlService} */
+	intl: service(),
 
 	/** @type {TwitchStream} */
 	stream: belongsTo( "twitch-stream", { async: false } ),
@@ -173,6 +176,120 @@ export default Model.extend( /** @class Stream */ {
 		this.twitchProxySwitches += 1;
 		return true;
 	},
+
+	// what Twitch ad blocking is doing, shown in the stream window (see recordAdblockEvent)
+	adblockServer: null,
+	adblockDirect: false,
+	adblockBackup: null,
+	adblockReconnecting: false,
+	adsCovered: 0,
+	adsGotThrough: 0,
+
+	/**
+	 * @param {{type: string, server?: string, playerType?: string}} event
+	 */
+	recordAdblockEvent( event ) {
+		switch ( event.type ) {
+			case "proxy":
+				setProperties( this, {
+					adblockServer: event.server,
+					adblockDirect: false,
+					adblockReconnecting: false
+				});
+				break;
+			case "direct":
+				setProperties( this, {
+					adblockServer: null,
+					adblockDirect: true,
+					adblockReconnecting: false
+				});
+				break;
+			case "backup":
+				set( this, "adblockBackup", event.playerType );
+				break;
+			case "ad-covered":
+				set( this, "adsCovered", this.adsCovered + 1 );
+				break;
+			case "ad-detected":
+				set( this, "adsGotThrough", this.adsGotThrough + 1 );
+				break;
+			case "reconnecting":
+				set( this, "adblockReconnecting", true );
+				break;
+		}
+	},
+
+	adblockStatus: computed(
+		"adblockServer",
+		"adblockDirect",
+		"adblockReconnecting",
+		"adsCovered",
+		"adsGotThrough",
+		function() {
+			const { adblockServer, adblockDirect, adsCovered, adsGotThrough } = this;
+			let key, level;
+
+			if ( this.adblockReconnecting ) {
+				key = "reconnecting";
+				level = "warning";
+			} else if ( adblockServer ) {
+				key = "proxy";
+				level = adsGotThrough ? "warning" : "success";
+			} else if ( adblockDirect ) {
+				key = "direct";
+				level = "warning";
+			} else {
+				key = "inactive";
+				level = "danger";
+			}
+
+			return { key, level, server: adblockServer, adsCovered, adsGotThrough };
+		}
+	),
+
+	// show the status as a badge in the corner of the screen, above the video player
+	adblockBadgeObserver: observer( "adblockStatus", "isWatching", "hasEnded", function() {
+		const badge = getAdblockBadge();
+		if ( !get( this, "settings.streaming.twitch_adblock_badge" ) || get( this, "hasEnded" ) ) {
+			if ( badge.status && badge.status.stream === this ) {
+				badge.hide();
+			}
+			return;
+		}
+		if ( !get( this, "isWatching" ) ) { return; }
+
+		const status = get( this, "adblockStatus" );
+		const { intl } = this;
+		const lastCovered = this.adsCovered > this._badgeCovered;
+		const lastGotThrough = this.adsGotThrough > this._badgeGotThrough;
+		this._badgeCovered = this.adsCovered;
+		this._badgeGotThrough = this.adsGotThrough;
+
+		let key = status.key;
+		let level = status.level;
+		if ( lastGotThrough && key !== "reconnecting" ) {
+			key = "got-through";
+			level = "warning";
+		} else if ( lastCovered ) {
+			key = "covered";
+			level = "info";
+		}
+
+		badge.show({
+			stream: this,
+			// Streamlink's process: the badge is moved onto its video player's window
+			pid: this.spawn && this.spawn.pid,
+			level,
+			label: intl.t( `modal.streaming.adblock.badge.${key}` ),
+			detail: intl.t( "modal.streaming.adblock.badge.detail", {
+				channel: get( this, "user.display_name" ) || get( this, "stream.user_login" ) || "",
+				server: status.server || "",
+				hasServer: status.server ? "yes" : "no"
+			})
+		});
+	}),
+	_badgeCovered: 0,
+	_badgeGotThrough: 0,
 
 	// optional: connect directly if every proxy fails
 	// (only ad-free with a VPN in an ad-free country)

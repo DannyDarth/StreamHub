@@ -52,6 +52,24 @@
 		margin-bottom: .5em;
 	}
 
+	.adblock-status {
+		margin-bottom: .5em;
+		font-size: .9em;
+
+		> .fa {
+			margin-right: .25em;
+		}
+
+		.adblock-counts {
+			display: block;
+			opacity: .7;
+		}
+
+		&.adblock-status-success > .fa { color: #3ccf6e; }
+		&.adblock-status-warning > .fa { color: #f5b83d; }
+		&.adblock-status-danger > .fa { color: #f2555a; }
+	}
+
 	.content {
 		min-height: @content-height;
 		max-height: 6rem;

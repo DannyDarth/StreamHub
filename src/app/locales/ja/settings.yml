@@ -148,6 +148,9 @@ streaming:
         direct:
             checkbox: If every proxy fails, connect directly through my VPN
             description: Only turn this on while a VPN (for example Bitdefender VPN) is connected to a country where Twitch doesn't show ads. Otherwise the stream would play from Twitch with ads.
+        badge:
+            checkbox: Show an ad-blocking badge in the corner of the screen while watching
+            description: A small shield above your video player shows whether the stream is ad-free, and turns amber if an ad gets through. It fades out after a few seconds; click it to hide it right away.
         backup:
             checkbox: Play an ad-free backup stream during ad breaks (experimental)
             description: If an ad still gets through, StreamHub plays a lower quality (usually 360p) ad-free stream of the same channel until the break ends, instead of reconnecting. Requires the plugin bundled with StreamHub.

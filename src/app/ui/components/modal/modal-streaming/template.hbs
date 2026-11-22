@@ -49,6 +49,15 @@
 						</div>
 					{{/if}}
 					{{stats-row stream=modalContext.stream withFlag=false}}
+					{{#with modalContext.adblockStatus as |adblock|}}
+						<div class="adblock-status adblock-status-{{adblock.level}}">
+							<i class="fa fa-shield"></i>
+							{{t (concat "modal.streaming.adblock." adblock.key) server=adblock.server}}
+							<span class="adblock-counts">
+								{{t "modal.streaming.adblock.counts" covered=adblock.adsCovered gotThrough=adblock.adsGotThrough}}
+							</span>
+						</div>
+					{{/with}}
 					{{#unless modalContext.showLog}}
 						{{embedded-links tagName="section" class="content" text=modalContext.stream.title}}
 					{{else}}
