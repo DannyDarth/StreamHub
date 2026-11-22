@@ -21,8 +21,15 @@ export default Model.extend( /** @class GithubReleases */ {
 	url: attr(),
 	zipball_url: attr(),
 
+	/**
+	 * Desktop version of this release, e.g. "1.0.2" for "streamhub-windows-v1.0.2" or "v1.0.2".
+	 * Null for releases of other apps (e.g. iOS builds), so they're never offered as updates.
+	 */
 	version: computed( "tag_name", function() {
-		return this.tag_name.replace( /^v/, "" );
+		const match = /^(?:streamhub-windows-)?v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?)$/
+			.exec( this.tag_name || "" );
+
+		return match ? match[ 1 ] : null;
 	})
 
 }).reopenClass({

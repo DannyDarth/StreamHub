@@ -1,4 +1,5 @@
 module.exports = {
+	// StreamHub desktop is Windows-only: the macOS and Linux targets were removed.
 	platforms: {
 		win32: {
 			platform: "win32",
@@ -6,20 +7,6 @@ module.exports = {
 		},
 		win64: {
 			platform: "win32",
-			arch    : "x64"
-		},
-
-		osx64: {
-			platform: "darwin",
-			arch    : "x64"
-		},
-
-		linux32: {
-			platform: "linux",
-			arch    : "ia32"
-		},
-		linux64: {
-			platform: "linux",
 			arch    : "x64"
 		}
 	},

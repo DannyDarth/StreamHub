@@ -289,7 +289,7 @@ module( "services/versioncheck", function( hooks ) {
 		assert.notOk( VersioncheckService.modal.isModalOpened, "Modal has been closed" );
 		assert.ok(
 			this.openBrowserSpy.calledWithExactly(
-				"https://github.com/streamlink/streamlink-twitch-gui/releases/tag/v{version}",
+				"https://github.com/DannyDarth/StreamHub/releases/tag/streamhub-windows-v{version}",
 				{
 					version: "1.0.0"
 				}
@@ -371,6 +371,34 @@ module( "services/versioncheck", function( hooks ) {
 			"Updates the checkagain versioncheck attribute"
 		);
 		assert.ok( this.versioncheckUpdateRecordStub.calledOnce, "Updates versioncheck record" );
+		assert.notOk(
+			this.element.querySelector( ".modal-newrelease-component" ),
+			"Doesn't show newrelease modal"
+		);
+	});
+
+	test( "Check for new release - release of another app", async function( assert ) {
+		/** @type {VersioncheckService} */
+		const VersioncheckService = this.owner.lookup( "service:versioncheck" );
+		set( VersioncheckService, "model", this.createFakeRecord( "versioncheck", {
+			id: "1",
+			version: "1.0.0",
+			checkagain: Date.now()
+		}) );
+
+		const fixtures = GithubReleasesFixtures[ "latest-other-app" ];
+		this.releasesAjaxResponse = fixtures.response;
+
+		await render( hbs`{{modal-service}}` );
+		await run( async () => await VersioncheckService._checkForNewRelease() );
+
+		assert.ok( this.releasesAjaxStub.calledOnce, "Queries github releases" );
+		assert.strictEqual( VersioncheckService.release.version, null, "Release has no version" );
+		assert.strictEqual(
+			VersioncheckService.model.checkagain,
+			Date.now() + 604800000,
+			"Updates the checkagain versioncheck attribute"
+		);
 		assert.notOk(
 			this.element.querySelector( ".modal-newrelease-component" ),
 			"Doesn't show newrelease modal"
