@@ -174,13 +174,15 @@ export default Model.extend( /** @class Stream */ {
 		return true;
 	},
 
-	// optional: connect directly if every proxy fails (only ad-free with a VPN in an ad-free country)
+	// optional: connect directly if every proxy fails
+	// (only ad-free with a VPN in an ad-free country)
 	twitchProxyDirect: computed(function() {
 		return !!get( this, "twitchProxyPlaylist" )
 			&& !!get( this, "settings.streaming.twitch_proxy_direct" );
 	}).volatile(),
 
-	// optional: ad-free lower quality backup stream during ad breaks (StreamHub's bundled plugin only)
+	// optional: ad-free lower quality backup stream during ad breaks
+	// (StreamHub's bundled plugin only)
 	twitchBackupStream: computed(function() {
 		const plugin = get( this, "twitchAdblockPlugin" );
 		return !!plugin && plugin.bundled
@@ -190,7 +192,8 @@ export default Model.extend( /** @class Stream */ {
 	twitchPluginDir: computed(function() {
 		const plugin = get( this, "twitchAdblockPlugin" );
 		if ( !plugin || !plugin.pluginDir ) { return ""; }
-		if ( !get( this, "twitchProxyPlaylist" ) && !get( this, "twitchBackupStream" ) ) { return ""; }
+		const proxies = get( this, "twitchProxyPlaylist" );
+		if ( !proxies && !get( this, "twitchBackupStream" ) ) { return ""; }
 		return plugin.pluginDir;
 	}).volatile(),
 
