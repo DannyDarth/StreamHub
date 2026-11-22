@@ -2,7 +2,7 @@ StreamHub
 ===
 [![Latest release][badge-release]][Releases] [![Build status][badge-actions]][Github-actions] [![License][badge-license]](LICENSE)
 
-**A desktop browser for [Twitch][Twitch] and [Kick][Kick] streams, built on [Streamlink][Streamlink].**
+**A Windows desktop browser for [Twitch][Twitch] and [Kick][Kick] streams, built on [Streamlink][Streamlink].**
 
 StreamHub is a modified version of [Streamlink Twitch GUI][Upstream]. Mainly for personal use, but if anyone wants to improve or add features, you're more than welcome.
 
@@ -35,14 +35,14 @@ StreamHub is an [NW.js][NW.js] application written in JavaScript ([EmberJS][Embe
 
 ## 📦 Download
 
-Get the Windows installer from the [Releases][Releases] page. StreamHub checks that page for updates.
+StreamHub desktop is Windows-only. Get the installer from the [Releases][Releases] page. StreamHub checks that page for updates.
 
 StreamHub is a graphical interface for **Streamlink**, so [Streamlink][Streamlink] has to be installed for streams to launch.
 
 
 ## 🔨 Build
 
-Install [Git][Git], [Node.js][Node.js] (20 or newer) and [Yarn][yarn], then:
+On Windows, install [Git][Git], [Node.js][Node.js] (20 or newer) and [Yarn][yarn], then:
 
 ```bash
 git clone https://github.com/DannyDarth/StreamHub.git
