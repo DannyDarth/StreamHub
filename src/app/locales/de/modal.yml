@@ -76,3 +76,17 @@ streaming:
         log: "{provider} Logansicht ein-/ausschalten"
         restart: Neu starten
         shutdown: Stream schließen
+    adblock:
+        proxy: "Twitch ads blocked: ad-free stream via {server}"
+        direct: "Proxies unavailable: playing directly from Twitch (ad-free only through a VPN)"
+        reconnecting: "An ad got through: reconnecting through the next proxy"
+        inactive: "Twitch ad blocking isn't active for this stream"
+        counts: "{covered, plural, =0 {} one {# ad break covered by the backup stream. } other {# ad breaks covered by the backup stream. }}{gotThrough, plural, =0 {No ads got through.} one {# ad got through.} other {# ads got through.}}"
+        badge:
+            proxy: "Ad-free"
+            direct: "Direct (VPN)"
+            reconnecting: "Reconnecting"
+            inactive: "Ad blocking off"
+            covered: "Ad break covered"
+            got-through: "Ad got through"
+            detail: "{hasServer, select, yes {{channel} · via {server}} other {{channel}}}"

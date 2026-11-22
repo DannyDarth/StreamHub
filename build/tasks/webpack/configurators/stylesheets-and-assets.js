@@ -1,6 +1,6 @@
 const { arch } = require( "process" );
 const { resolve: r, posix: { join: j } } = require( "path" );
-const { pRoot, pDependencies } = require( "../paths" );
+const { pRoot, pAssets, pDependencies } = require( "../paths" );
 
 const MiniCssExtractPlugin = require( "mini-css-extract-plugin" );
 const CssMinimizerWebpackPlugin = require( "css-minimizer-webpack-plugin" );
@@ -86,6 +86,16 @@ module.exports = {
 		config.plugins.push(
 			new MiniCssExtractPlugin({
 				filename: "[name].css"
+			})
+		);
+
+		// ad-blocking badge window (opened by utils/adblock-badge.js)
+		config.plugins.push(
+			new CopyWebpackPlugin({
+				patterns: [{
+					from: r( pAssets, "adblock-badge.html" ),
+					to: "adblock-badge.html"
+				}]
 			})
 		);
 

@@ -172,6 +172,13 @@
 		{{t "settings.streaming.twitch-adblock.direct.description"}}
 	</p>
 	{{check-box
+		(t "settings.streaming.twitch-adblock.badge.checkbox")
+		checked=model.streaming.twitch_adblock_badge
+	}}
+	<p class="small">
+		{{t "settings.streaming.twitch-adblock.badge.description"}}
+	</p>
+	{{check-box
 		(t "settings.streaming.twitch-adblock.backup.checkbox")
 		checked=model.streaming.twitch_backup_stream
 		disabled=(bool-not twitchAdblockPluginBundled)
