@@ -71,9 +71,34 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "NSIS installer packaging failed" }
           Move-Item 'build/resources/StreamHub-Windows-x64-Setup.exe' 'dist/StreamHub-Windows-x64-Setup.exe'
 
+      - name: Add portable build readme
+        shell: powershell
+        run: |
+          $readme = @(
+            'StreamHub for Windows (x64), portable build',
+            '',
+            'Extract this folder anywhere and run streamlink-twitch-gui.exe. Nothing is installed.',
+            'Streamlink must be installed separately: https://streamlink.github.io/install.html',
+            '',
+            'Twitch ad blocking uses the plugin in the streamlink-plugins folder next to the exe.',
+            'Settings are shared with an installed StreamHub, so switch back and forth freely.',
+            '',
+            "Built from commit $env:GITHUB_SHA"
+          )
+          Set-Content -Encoding utf8 -Path 'build/releases/streamlink-twitch-gui/win64/README-PORTABLE.txt' -Value $readme
+
+      - name: Upload portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreamHub-Windows-x64-portable
+          path: build/releases/streamlink-twitch-gui/win64/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: streamhub-windows-x64-installer
           path: dist/StreamHub-Windows-x64-Setup.exe
           if-no-files-found: error
+          retention-days: 14
