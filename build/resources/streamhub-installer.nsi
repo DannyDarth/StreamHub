@@ -9,6 +9,8 @@ InstallDir "$LOCALAPPDATA\\Programs\\StreamHub"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 
+!define MUI_WELCOMEFINISHPAGE_BITMAP "icons\\streamhub-installer-sidebar.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "icons\\streamhub-installer-sidebar.bmp"
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY

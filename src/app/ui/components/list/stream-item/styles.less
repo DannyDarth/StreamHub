@@ -341,3 +341,25 @@
 		}
 	}
 }
+
+.stream-item-component > header .streamer-identity {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.stream-item-component > header .streamer-identity > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stream-item-component > header .streamer-avatar {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 50%;
+  border: 2px solid #9146ff;
+  object-fit: cover;
+}

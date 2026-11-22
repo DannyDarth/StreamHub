@@ -4,6 +4,8 @@ import { getFavorites, saveFavorites } from "ui/utils/kick-favorites";
 
 const { spawn } = require( "child_process" );
 
+const validSlug = slug => typeof slug === "string" && /^[A-Za-z0-9_-]+$/.test( slug );
+
 export default Controller.extend({
 	favorites: null,
 	channels: null,
@@ -41,7 +43,7 @@ export default Controller.extend({
 					const live = result.data || result;
 					if ( generation !== this.refreshGeneration ) { return; }
 					const isLive = Boolean( live && live.id );
-					if ( !isLive ) {
+					{
 						const profileResponse = await fetch(
 							`https://kick.com/api/v2/channels/${encodeURIComponent( slug )}`,
 							{ credentials: "omit" }
@@ -112,7 +114,7 @@ export default Controller.extend({
 			this.refreshChannels();
 		},
 		play( slug ) {
-			if ( !slug ) { return; }
+			if ( !validSlug( slug ) ) { return; }
 			set( this, "error", null );
 			const child = spawn( "streamlink",
 				[ `https://kick.com/${slug}`, "best" ], { windowsHide: true } );
@@ -135,6 +137,7 @@ export default Controller.extend({
 			});
 		},
 		openBrowser( slug ) {
+			if ( !validSlug( slug ) ) { return; }
 			require( "nw.gui" ).Shell.openExternal( `https://kick.com/${slug}` );
 		}
 	}
