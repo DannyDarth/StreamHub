@@ -14,6 +14,7 @@ const reReplace = /^\[[^\]]+]\[[^\]]+]\s+/;
 const rePlayerStarted = /^Starting player: \S+/;
 // logged by Streamlink's Twitch plugin when Twitch stitches ads into the stream
 const reAdBreak = /^Detected advertisement break of \d+ seconds?/;
+const msgProxySwitch = "Ad detected, reconnecting through the next proxy server";
 
 
 /**
@@ -122,7 +123,7 @@ export default async function( stream, provider, player, onSuccess ) {
 					&& stream.switchTwitchProxy()
 				) {
 					switchingProxy = true;
-					stream.pushLog( "stdOut", "Ad detected, reconnecting through the next proxy server" );
+					stream.pushLog( "stdOut", msgProxySwitch );
 					child.kill();
 					return;
 				}
