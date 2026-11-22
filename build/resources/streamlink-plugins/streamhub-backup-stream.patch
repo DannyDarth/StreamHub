@@ -106,7 +106,7 @@
  
  class TwitchHLSStreamWriter(HLSStreamWriter):
      reader: TwitchHLSStreamReader
-@@ -289,6 +355,95 @@
+@@ -289,6 +355,101 @@
      def __init__(self, *args, low_latency: bool = False, **kwargs):
          super().__init__(*args, **kwargs)
          self.low_latency = low_latency
@@ -123,7 +123,7 @@
 +    """
 +
 +    PLAYER_TYPES = ("autoplay", "picture-by-picture", "embed", "site", "popout")
-+    PREFERRED_QUALITIES = ("360p", "480p", "160p")
++    PREFERRED_HEIGHTS = (360, 480, 160)
 +    RETRY_DELAY = 10.0
 +
 +    def __init__(self, plugin: Twitch, channel: str, player_types: list[str] | None = None):
@@ -179,18 +179,24 @@
 +        res = self.plugin.session.http.get(url, proxies={})
 +        multivariant = parse_m3u8(res, url, parser=TwitchM3U8Parser)
 +
++        # video variants only (audio_only has no resolution); works on Streamlink 8.3 (no HLSPlaylist.get_name())
 +        candidates = [
 +            playlist for playlist in multivariant.playlists
-+            if not playlist.is_iframe and (playlist.get_name() or "") not in ("audio_only", "audio")
++            if not playlist.is_iframe and self._height(playlist)
 +        ]
 +        if not candidates:
 +            return None
-+        for quality in self.PREFERRED_QUALITIES:
++        for height in self.PREFERRED_HEIGHTS:
 +            for playlist in candidates:
-+                if (playlist.get_name() or "").startswith(quality):
++                if self._height(playlist) == height:
 +                    return playlist.uri
 +
 +        return min(candidates, key=lambda playlist: playlist.stream_info.bandwidth).uri
++
++    @staticmethod
++    def _height(playlist) -> int | None:
++        resolution = getattr(playlist.stream_info, "resolution", None)
++        return resolution.height if resolution else None
 +
 +    def _fetch_media(self, url: str) -> TwitchM3U8 | None:
 +        try:
@@ -202,7 +208,7 @@
  
  
  class UsherService:
-@@ -950,6 +1105,22 @@
+@@ -950,6 +1111,22 @@
          Fallback to Twitch servers if all requests to playlist proxies fail.
      """,
  )
@@ -225,7 +231,7 @@
  class Twitch(Plugin):
      _CACHE_KEY_CLIENT_INTEGRITY = "client-integrity"
  
-@@ -1154,11 +1325,18 @@
+@@ -1154,11 +1331,18 @@
          elif self.clip_id:
              return self._get_clips(self.clip_id)
          elif self.channel:

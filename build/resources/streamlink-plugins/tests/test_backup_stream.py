@@ -161,8 +161,9 @@ def test_backup_stream_custom_player_types():
     plugin = FakePlugin(ads=[])
     backup = twitch.TwitchBackupStream(plugin, "channel", ["site"])
 
-    backup.segments()
+    segments = backup.segments()
     assert plugin.token_requests == ["site"]
+    assert [segment.uri for segment in segments] == ["https://h/site/1.ts"], "finds the backup stream"
 
 
 def test_plugin_arguments():
