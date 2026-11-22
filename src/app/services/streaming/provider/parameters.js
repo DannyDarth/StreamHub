@@ -27,6 +27,26 @@ export const parameters = [
 		"stream.low_latency"
 	),
 	new Parameter(
+		"--plugin-dirs",
+		null,
+		"stream.twitchPluginDir"
+	),
+	new Parameter(
+		"--twitch-proxy-playlist",
+		null,
+		"stream.twitchProxyPlaylist"
+	),
+	// off by default: if every proxy fails, the stream must not be played from Twitch's own servers
+	// with ads; only enabled by the user when a VPN in an ad-free country is connected
+	new Parameter(
+		"--twitch-proxy-playlist-fallback",
+		"stream.twitchProxyDirect"
+	),
+	new Parameter(
+		"--twitch-backup-stream",
+		"stream.twitchBackupStream"
+	),
+	new Parameter(
 		"--webbrowser",
 		null,
 		"stream.webbrowser"

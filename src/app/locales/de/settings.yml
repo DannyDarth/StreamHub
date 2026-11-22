@@ -141,6 +141,21 @@ streaming:
         description: Reduziert die Streamverzögerung für Kanäle, welche im Niedriglatenzmodus streamen.
         notes: Bitte beachte, dass durch die Aktivierung dieser Option auch der live-edge Wert auf 2 gesetzt wird falls er höher ist, was zu Buffering für Streams mit regulärer Latenz führen kann. Um die geringstmögliche Latenz zu erreichen, müssen die Cache-/Buffereinstellungen des Players selbst weiter optimiert werden.
         checkbox: Streaming mit geringer Latenz aktivieren
+    twitch-adblock:
+        title: Twitch ad blocking
+        description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
+        notes: Servers are tried in order. If an ad still gets through, StreamHub reconnects through the next server, which takes a few seconds. If every server fails, the stream doesn't start, rather than playing from Twitch with ads. The proxy servers see which channel you watch and your IP address.
+        checkbox: Block Twitch ads using playlist proxies
+        servers: Proxy servers (comma separated)
+        placeholder: httpproxy://host:port,https://host
+        missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
+        documentation: About the streamlink-ttvlol plugin and its proxy servers.
+        direct:
+            checkbox: If every proxy fails, connect directly through my VPN
+            description: Only turn this on while a VPN (for example Bitdefender VPN) is connected to a country where Twitch doesn't show ads. Otherwise the stream would play from Twitch with ads.
+        backup:
+            checkbox: Play an ad-free backup stream during ad breaks (experimental)
+            description: If an ad still gets through, StreamHub plays a lower quality (usually 360p) ad-free stream of the same channel until the break ends, instead of reconnecting. Requires the plugin bundled with StreamHub.
     hls-live-edge:
         title: HLS live edge
         description: Das Senken des Wertes reduziert die Streamverzögerung, kann allerdings Buffering verursachen. Je nach Playerkonfiguration existieren weitere Bufferebenen.

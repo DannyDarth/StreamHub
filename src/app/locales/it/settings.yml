@@ -121,6 +121,21 @@ streaming:
         description: Riduce il ritardo dello streaming per i canali che stanno trasmettendo in modalità a bassa latenza.
         notes: Tieni presente che l'abilitazione di questa opzione imposterà anche il valore live-edge su 2 se è più alto, il che potrebbe causare il buffering per i flussi regolari. Per ottenere la latenza più bassa possibile, è necessario apportare ulteriori modifiche alle impostazioni di memorizzazione nella cache/buffering del lettore video.
         checkbox: Abilita lo streaming a bassa latenza
+    twitch-adblock:
+        title: Twitch ad blocking
+        description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
+        notes: Servers are tried in order. If an ad still gets through, StreamHub reconnects through the next server, which takes a few seconds. If every server fails, the stream doesn't start, rather than playing from Twitch with ads. The proxy servers see which channel you watch and your IP address.
+        checkbox: Block Twitch ads using playlist proxies
+        servers: Proxy servers (comma separated)
+        placeholder: httpproxy://host:port,https://host
+        missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
+        documentation: About the streamlink-ttvlol plugin and its proxy servers.
+        direct:
+            checkbox: If every proxy fails, connect directly through my VPN
+            description: Only turn this on while a VPN (for example Bitdefender VPN) is connected to a country where Twitch doesn't show ads. Otherwise the stream would play from Twitch with ads.
+        backup:
+            checkbox: Play an ad-free backup stream during ad breaks (experimental)
+            description: If an ad still gets through, StreamHub plays a lower quality (usually 360p) ad-free stream of the same channel until the break ends, instead of reconnecting. Requires the plugin bundled with StreamHub.
     hls-live-edge:
         title: HLS live edge
         description: La riduzione del valore ridurrà la latenza del flusso, ma potrebbe anche causare il buffering. A seconda della configurazione del lettore video, potrebbe esserci un altro livello di buffering.

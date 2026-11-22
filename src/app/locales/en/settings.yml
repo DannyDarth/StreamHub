@@ -141,6 +141,21 @@ streaming:
         description: Reduces the streaming delay for channels which are streaming in low latency mode.
         notes: Be aware that enabling this option will also set the live-edge value to 2 if it is higher, which may cause buffering for regular streams. To achieve the lowest latency possible, further tweaking of the player's own caching/buffering settings needs to be done.
         checkbox: Enable low latency streaming
+    twitch-adblock:
+        title: Twitch ad blocking
+        description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
+        notes: Servers are tried in order. If an ad still gets through, StreamHub reconnects through the next server, which takes a few seconds. If every server fails, the stream doesn't start, rather than playing from Twitch with ads. The proxy servers see which channel you watch and your IP address.
+        checkbox: Block Twitch ads using playlist proxies
+        servers: Proxy servers (comma separated)
+        placeholder: httpproxy://host:port,https://host
+        missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
+        documentation: About the streamlink-ttvlol plugin and its proxy servers.
+        direct:
+            checkbox: If every proxy fails, connect directly through my VPN
+            description: Only turn this on while a VPN (for example Bitdefender VPN) is connected to a country where Twitch doesn't show ads. Otherwise the stream would play from Twitch with ads.
+        backup:
+            checkbox: Play an ad-free backup stream during ad breaks (experimental)
+            description: If an ad still gets through, StreamHub plays a lower quality (usually 360p) ad-free stream of the same channel until the break ends, instead of reconnecting. Requires the plugin bundled with StreamHub.
     hls-live-edge:
         title: HLS live edge
         description: Lowering the value will reduce stream latency, but may also cause buffering. Depending on the player configuration, there may be another layer of buffering.

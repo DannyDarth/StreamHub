@@ -1,0 +1,46 @@
+name: Streamlink Twitch plugin
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'build/resources/streamlink-plugins/**'
+      - '.github/workflows/streamlink-plugin.yml'
+  pull_request:
+    paths:
+      - 'build/resources/streamlink-plugins/**'
+      - '.github/workflows/streamlink-plugin.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  plugin:
+    name: Build and test bundled plugin
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Streamlink 8.3 and test tools
+        run: python -m pip install "streamlink==8.3.*" pytest
+      - name: Build plugin (download, verify, patch)
+        run: python build/resources/streamlink-plugins/build_plugin.py "${{ runner.temp }}/streamlink-plugins"
+      - name: Unit tests
+        env:
+          STREAMHUB_TWITCH_PLUGIN: ${{ runner.temp }}/streamlink-plugins/twitch.py
+        run: python -m pytest -v build/resources/streamlink-plugins/tests
+      - name: Streamlink loads the plugin and its arguments
+        shell: bash
+        run: |
+          set -euo pipefail
+          streamlink --version
+          streamlink --plugin-dirs "${{ runner.temp }}/streamlink-plugins" --help > help.txt
+          for option in --twitch-proxy-playlist --twitch-backup-stream --twitch-backup-stream-player-types; do
+            grep -q -- "$option" help.txt || { echo "::error::missing $option"; exit 1; }
+          done
+          echo "Streamlink loads the bundled plugin with all StreamHub options"

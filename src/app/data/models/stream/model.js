@@ -5,6 +5,7 @@ import attr from "ember-data/attr";
 import Model from "ember-data/model";
 import { belongsTo } from "ember-data/relationships";
 import { twitch as twitchConfig } from "config";
+import findTwitchAdblockPlugin from "services/streaming/provider/twitch-adblock";
 import qualities from "./-qualities";
 
 
@@ -131,6 +132,70 @@ export default Model.extend( /** @class Stream */ {
 
 	webbrowser: settingsBool( "settings.streaming.webbrowser" ),
 	webbrowser_headless: settingsBool( "settings.streaming.webbrowser_headless" ),
+
+	// Twitch ad-blocking via the streamlink-ttvlol plugin's playlist proxies.
+	// Empty (no parameters set) if disabled, if no proxies are configured,
+	// or if the plugin isn't available, since stock Streamlink would reject the parameters.
+	twitchAdblockPlugin: computed(function() {
+		return findTwitchAdblockPlugin();
+	}).volatile(),
+
+	twitchProxyServers: computed(function() {
+		if ( !get( this, "settings.streaming.twitch_proxy" ) ) { return []; }
+		if ( !get( this, "twitchAdblockPlugin" ) ) { return []; }
+		return String( get( this, "settings.streaming.twitch_proxy_playlist" ) || "" )
+			.split( "," )
+			.map( server => server.trim() )
+			.filter( server => server.length );
+	}).volatile(),
+
+	// number of times an ad got through and the stream was relaunched via the next proxy
+	twitchProxySwitches: 0,
+
+	// the proxy list, rotated so that the next proxy is tried first after each switch
+	twitchProxyPlaylist: computed(function() {
+		const servers = get( this, "twitchProxyServers" );
+		const offset = this.twitchProxySwitches % ( servers.length || 1 );
+
+		return [ ...servers.slice( offset ), ...servers.slice( 0, offset ) ].join( "," );
+	}).volatile(),
+
+	/**
+	 * Called when Streamlink reports an ad break: switch to the next proxy server.
+	 * Each server gets the first position once per stream, so a stream can't restart forever.
+	 * @returns {boolean} whether the stream should be relaunched
+	 */
+	switchTwitchProxy() {
+		const servers = get( this, "twitchProxyServers" );
+		if ( servers.length < 2 || this.twitchProxySwitches >= servers.length - 1 ) {
+			return false;
+		}
+		this.twitchProxySwitches += 1;
+		return true;
+	},
+
+	// optional: connect directly if every proxy fails
+	// (only ad-free with a VPN in an ad-free country)
+	twitchProxyDirect: computed(function() {
+		return !!get( this, "twitchProxyPlaylist" )
+			&& !!get( this, "settings.streaming.twitch_proxy_direct" );
+	}).volatile(),
+
+	// optional: ad-free lower quality backup stream during ad breaks
+	// (StreamHub's bundled plugin only)
+	twitchBackupStream: computed(function() {
+		const plugin = get( this, "twitchAdblockPlugin" );
+		return !!plugin && plugin.bundled
+			&& !!get( this, "settings.streaming.twitch_backup_stream" );
+	}).volatile(),
+
+	twitchPluginDir: computed(function() {
+		const plugin = get( this, "twitchAdblockPlugin" );
+		if ( !plugin || !plugin.pluginDir ) { return ""; }
+		const proxies = get( this, "twitchProxyPlaylist" );
+		if ( !proxies && !get( this, "twitchBackupStream" ) ) { return ""; }
+		return plugin.pluginDir;
+	}).volatile(),
 
 	kill() {
 		if ( this.spawn ) {

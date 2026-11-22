@@ -6,6 +6,12 @@
 	"docs-url": {
 		"streamlink": "https://streamlink.github.io/cli.html#cmdoption{item}"
 	},
+	"twitch-adblock": {
+		"default-proxies": "httpproxy://firefox.api.cdn-perfprod.com:2023,httpproxy://chromium.api.cdn-perfprod.com:2023,https://lb-na.cdn-perfprod.com,https://lb-eu.cdn-perfprod.com,https://eu.luminous.dev",
+		"plugin-dir": "streamlink-plugins",
+		"plugin-file": "twitch.py",
+		"docs-url": "https://github.com/2bc4/streamlink-ttvlol"
+	},
 	"client-integrity-docs": "https://streamlink.github.io/cli/plugins/twitch.html#client-integrity-token",
 	"validation": {
 		"timeout": 10000,

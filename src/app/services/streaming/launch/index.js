@@ -12,6 +12,9 @@ const { getParameters } = Parameter;
 
 const reReplace = /^\[[^\]]+]\[[^\]]+]\s+/;
 const rePlayerStarted = /^Starting player: \S+/;
+// logged by Streamlink's Twitch plugin when Twitch stitches ads into the stream
+const reAdBreak = /^Detected advertisement break of \d+ seconds?/;
+const msgProxySwitch = "Ad detected, reconnecting through the next proxy server";
 
 
 /**
@@ -25,6 +28,7 @@ export default async function( stream, provider, player, onSuccess ) {
 	isAborted( stream );
 
 	let child;
+	let switchingProxy = false;
 
 	try {
 		// the "watching" promise
@@ -58,6 +62,12 @@ export default async function( stream, provider, player, onSuccess ) {
 			function onExit( spawnQuality, code, signal ) {
 				// clear up some memory
 				stream.spawn = child = null;
+
+				// an ad got through the proxy: relaunch through the next proxy server
+				if ( switchingProxy ) {
+					switchingProxy = false;
+					return launch();
+				}
 
 				// quality has been changed
 				const currentQuality = get( stream, "quality" );
@@ -104,6 +114,19 @@ export default async function( stream, provider, player, onSuccess ) {
 				}
 
 				stream.pushLog( "stdOut", line );
+
+				// ads must not interrupt the stream: try the next playlist proxy instead
+				if (
+					   !switchingProxy
+					&& reAdBreak.test( line )
+					&& typeof stream.switchTwitchProxy === "function"
+					&& stream.switchTwitchProxy()
+				) {
+					switchingProxy = true;
+					stream.pushLog( "stdOut", msgProxySwitch );
+					child.kill();
+					return;
+				}
 
 				// succeed once player has been launched
 				if ( rePlayerStarted.test( line ) ) {

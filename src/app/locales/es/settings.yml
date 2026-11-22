@@ -121,6 +121,21 @@ streaming:
         description: Reduce la carga del stream para los canales que se transmiten en modo de baja latencia.
         notes: Tenga en cuenta que habilitar esta opción también establecerá el valor de Live-Edge en 2 si es más alto, lo que puede causar el almacenamiento en búfer para transmisiones regulares. Para lograr la latencia más baja posible, es necesario realizar más ajustes en la configuración de almacenamiento en caché / búfer del reproductor.
         checkbox: Habilitar la transmisión de baja latencia
+    twitch-adblock:
+        title: Twitch ad blocking
+        description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
+        notes: Servers are tried in order. If an ad still gets through, StreamHub reconnects through the next server, which takes a few seconds. If every server fails, the stream doesn't start, rather than playing from Twitch with ads. The proxy servers see which channel you watch and your IP address.
+        checkbox: Block Twitch ads using playlist proxies
+        servers: Proxy servers (comma separated)
+        placeholder: httpproxy://host:port,https://host
+        missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
+        documentation: About the streamlink-ttvlol plugin and its proxy servers.
+        direct:
+            checkbox: If every proxy fails, connect directly through my VPN
+            description: Only turn this on while a VPN (for example Bitdefender VPN) is connected to a country where Twitch doesn't show ads. Otherwise the stream would play from Twitch with ads.
+        backup:
+            checkbox: Play an ad-free backup stream during ad breaks (experimental)
+            description: If an ad still gets through, StreamHub plays a lower quality (usually 360p) ad-free stream of the same channel until the break ends, instead of reconnecting. Requires the plugin bundled with StreamHub.
     hls-live-edge:
         title: HLS live edge
         description: Bajar el valor reducirá la latencia de la transmisión, pero también puede causar almacenamiento en búfer. Dependiendo de la configuración del reproductor, puede haber otra capa de almacenamiento en búfer.
