@@ -31,14 +31,11 @@ export const parameters = [
 		null,
 		"stream.twitchPluginDir"
 	),
+	// deliberately no --twitch-proxy-playlist-fallback: if every proxy fails, the stream must
+	// not be played from Twitch's own servers with ads (or ad pauses); it fails to launch instead
 	new Parameter(
 		"--twitch-proxy-playlist",
 		null,
-		"stream.twitchProxyPlaylist"
-	),
-	// if every proxy fails, use Twitch directly; Streamlink still filters out ad segments then
-	new Parameter(
-		"--twitch-proxy-playlist-fallback",
 		"stream.twitchProxyPlaylist"
 	),
 	new Parameter(
