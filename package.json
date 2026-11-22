@@ -1,12 +1,12 @@
 {
 	"name": "streamlink-twitch-gui",
-	"version": "2.5.3",
+	"version": "1.0.2",
 	"license": "MIT",
-	"author": "Sebastian Meyer",
-	"homepage": "https://github.com/streamlink/streamlink-twitch-gui",
+	"author": "DannyDarth",
+	"homepage": "https://github.com/DannyDarth/StreamHub",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/streamlink/streamlink-twitch-gui.git"
+		"url": "https://github.com/DannyDarth/StreamHub.git"
 	},
 	"private": true,
 	"engines": {

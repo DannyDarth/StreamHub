@@ -124,7 +124,8 @@ export default Service.extend( /** @class VersioncheckService */ {
 		const release = await this.store.queryRecord( "github-releases", "latest" );
 		set( this, "release", release );
 
-		if ( !semverLt( this.version, release.version ) ) {
+		// ignore releases without a valid desktop version (e.g. iOS builds)
+		if ( !release.version || !semverLt( this.version, release.version ) ) {
 			return this.ignoreRelease();
 		}
 
