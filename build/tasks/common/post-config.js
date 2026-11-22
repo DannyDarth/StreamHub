@@ -43,7 +43,7 @@ function getVersion( config ) {
 	// Convert Git's commit-distance suffix to valid semver build metadata first.
 	// For example: v2.5.3-4-gabcdef0-dirty -> v2.5.3+4.gabcdef0.dirty
 	const normalized = output.replace(
-		/-(\\d+-g[a-f0-9]+(-dirty)?)$/,
+		/-(\d+-g[a-f0-9]+(-dirty)?)$/,
 		( _, suffix ) => `+${suffix.replace( /-/g, "." )}`
 	);
 
