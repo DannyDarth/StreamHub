@@ -141,14 +141,38 @@ export default Model.extend( /** @class Stream */ {
 		return findTwitchAdblockPlugin();
 	}).volatile(),
 
-	twitchProxyPlaylist: computed(function() {
-		if ( !get( this, "twitchAdblockPlugin" ) ) { return ""; }
+	twitchProxyServers: computed(function() {
+		if ( !get( this, "twitchAdblockPlugin" ) ) { return []; }
 		return String( get( this, "settings.streaming.twitch_proxy_playlist" ) || "" )
 			.split( "," )
 			.map( server => server.trim() )
-			.filter( server => server.length )
-			.join( "," );
+			.filter( server => server.length );
 	}).volatile(),
+
+	// number of times an ad got through and the stream was relaunched via the next proxy
+	twitchProxySwitches: 0,
+
+	// the proxy list, rotated so that the next proxy is tried first after each switch
+	twitchProxyPlaylist: computed(function() {
+		const servers = get( this, "twitchProxyServers" );
+		const offset = this.twitchProxySwitches % ( servers.length || 1 );
+
+		return [ ...servers.slice( offset ), ...servers.slice( 0, offset ) ].join( "," );
+	}).volatile(),
+
+	/**
+	 * Called when Streamlink reports an ad break: switch to the next proxy server.
+	 * Each server gets the first position once per stream, so a stream can't restart forever.
+	 * @returns {boolean} whether the stream should be relaunched
+	 */
+	switchTwitchProxy() {
+		const servers = get( this, "twitchProxyServers" );
+		if ( servers.length < 2 || this.twitchProxySwitches >= servers.length - 1 ) {
+			return false;
+		}
+		this.twitchProxySwitches += 1;
+		return true;
+	},
 
 	twitchPluginDir: computed(function() {
 		const plugin = get( this, "twitchAdblockPlugin" );

@@ -124,7 +124,7 @@ streaming:
     twitch-adblock:
         title: Twitch ad blocking
         description: Plays Twitch streams through ad-free playlist proxies using the streamlink-ttvlol plugin.
-        notes: The proxy servers see which channel you watch and your IP address. If all proxies fail, the stream plays directly from Twitch, where Streamlink still filters out ad segments.
+        notes: Servers are tried in order. If an ad still gets through, StreamHub reconnects through the next server, which takes a few seconds. If every server fails, the stream plays directly from Twitch, where Streamlink filters out ad segments but pauses during the break. The proxy servers see which channel you watch and your IP address.
         checkbox: Block Twitch ads using playlist proxies
         servers: Proxy servers (comma separated)
         placeholder: httpproxy://host:port,https://host

@@ -414,3 +414,58 @@ test( "Quality change", async function( assert ) {
 	assert.strictEqual( this.spawnStub.callCount, 3, "Has launched stream 3 times" );
 
 });
+
+
+const adLog = "[plugins.twitch][info] Detected advertisement break of";
+
+test( "Ad break: relaunch through the next proxy", async function( assert ) {
+
+	const switchTwitchProxy = sinon.stub();
+	switchTwitchProxy.onFirstCall().returns( true );
+	switchTwitchProxy.onSecondCall().returns( false );
+
+	const stream = this.Stream.create({
+		quality: "foo",
+		isCompleted: false,
+		switchTwitchProxy
+	});
+	const promise = this.launchProvider( stream, {}, {}, () => {} );
+	const firstChild = this.child;
+
+	this.child.stdout.emit( "data", `${adLog} 30 seconds\n` );
+	assert.ok( switchTwitchProxy.calledOnce, "Asks the stream to switch proxies" );
+	assert.ok( this.killChildSpy.calledOnce, "Kills the current Streamlink process" );
+
+	firstChild.emit( "exit", null, "SIGTERM" );
+	assert.notStrictEqual( this.child, firstChild, "Launches a new Streamlink process" );
+	assert.strictEqual( stream.spawn, this.child, "stream.spawn is the new child object" );
+	assert.notOk( get( stream, "isCompleted" ), "Stream isn't completed by the switch" );
+
+	// no proxies left: keep watching (Streamlink filters the ad segments)
+	this.child.stdout.emit( "data", `${adLog} 1 second\n` );
+	assert.ok( switchTwitchProxy.calledTwice, "Asks again on the next ad break" );
+	assert.ok( this.killChildSpy.calledOnce, "Doesn't kill the process when no proxy is left" );
+
+	this.child.emit( "exit", 0 );
+	await promise;
+
+	assert.strictEqual( this.spawnStub.callCount, 2, "Has launched Streamlink twice" );
+	assert.strictEqual( get( stream, "isCompleted" ), true, "Stream completes normally" );
+
+});
+
+
+test( "Ad break without proxy switching", async function( assert ) {
+
+	const stream = this.Stream.create({ isCompleted: false });
+	const promise = this.launchProvider( stream, {}, {}, () => {} );
+
+	this.child.stdout.emit( "data", `${adLog} 15 seconds\n` );
+	assert.notOk( this.killChildSpy.called, "Doesn't kill the process" );
+
+	this.child.emit( "exit", 0 );
+	await promise;
+
+	assert.strictEqual( this.spawnStub.callCount, 1, "Has launched Streamlink once" );
+
+});
