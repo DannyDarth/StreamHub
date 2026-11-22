@@ -37,12 +37,12 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Check out feature branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Install Windows packaging tools
         timeout-minutes: 40
@@ -76,7 +76,7 @@ jobs:
           test -n "$(find portable-app -type f -print -quit)"
 
       - name: Upload portable Windows app
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: streamhub-windows-x64-portable
           path: portable-app/
