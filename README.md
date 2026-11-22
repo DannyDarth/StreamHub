@@ -8,7 +8,7 @@ StreamHub is a modified version of [Streamlink Twitch GUI][Upstream]. Mainly for
 
 <img width="903" height="599" alt="StreamHub screenshot" src="https://github.com/user-attachments/assets/5561e81b-d98c-423c-942b-fac619c7ecdc" />
 
-Looking for the iPhone app? It lives in its own repository: [StreamHub-iOS][iOS].
+The iPhone app's source is in the [`ios/`](ios) folder. Its installable builds are published from [StreamHub-iOS][iOS].
 
 
 ## ℹ️ Description
