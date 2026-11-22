@@ -145,6 +145,12 @@ streaming:
         placeholder: httpproxy://host:port,https://host
         missing: The streamlink-ttvlol plugin was not found, so ad blocking is inactive. Reinstall StreamHub or install the plugin into Streamlink's plugins folder.
         documentation: About the streamlink-ttvlol plugin and its proxy servers.
+        direct:
+            checkbox: If every proxy fails, connect directly through my VPN
+            description: Only turn this on while a VPN (for example Bitdefender VPN) is connected to a country where Twitch doesn't show ads. Otherwise the stream would play from Twitch with ads.
+        backup:
+            checkbox: Play an ad-free backup stream during ad breaks (experimental)
+            description: If an ad still gets through, StreamHub plays a lower quality (usually 360p) ad-free stream of the same channel until the break ends, instead of reconnecting. Requires the plugin bundled with StreamHub.
     hls-live-edge:
         title: HLS live edge
         description: 値を小さくするとストリームの遅延が減少しますが、バッファリングが発生する可能性があります。プレーヤーの構成によっては別レイヤのバッファリングが存在する場合があります。

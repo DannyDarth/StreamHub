@@ -16,31 +16,33 @@ const {
  * Stock Streamlink doesn't know these parameters and would refuse to launch, so they may only be
  * set when this returns a result.
  *
- * A plugin the user installed into Streamlink's own plugins folder is preferred, since Streamlink
- * loads it automatically and it's the one the user keeps up to date.
- * Otherwise, the plugin bundled with StreamHub's installer is used via --plugin-dirs.
+ * The plugin bundled with StreamHub's installer is preferred: it's a pinned release with StreamHub's
+ * additions (the ad-free backup stream), loaded via --plugin-dirs, which overrides any plugin in
+ * Streamlink's own plugins folder.
+ * Otherwise, a plugin the user installed into Streamlink's plugins folder is used (loaded automatically).
  *
  * @param {Object} [env]
  * @param {string} [execPath]
  * @param {Function} [exists]
- * @returns {({pluginDir: string|null})|null} pluginDir is null if no --plugin-dirs is required
+ * @returns {({pluginDir: string|null, bundled: boolean})|null}
+ *   pluginDir is null if no --plugin-dirs is required; bundled means StreamHub's additions are available
  */
 export default function findTwitchAdblockPlugin(
 	env = process.env,
 	execPath = process.execPath,
 	exists = existsSync
 ) {
-	if ( env.APPDATA ) {
-		const userPlugin = join( env.APPDATA, "streamlink", "plugins", pluginFileName );
-		if ( exists( userPlugin ) ) {
-			return { pluginDir: null };
-		}
-	}
-
 	if ( execPath ) {
 		const bundledDir = join( dirname( execPath ), pluginDirName );
 		if ( exists( join( bundledDir, pluginFileName ) ) ) {
-			return { pluginDir: bundledDir };
+			return { pluginDir: bundledDir, bundled: true };
+		}
+	}
+
+	if ( env.APPDATA ) {
+		const userPlugin = join( env.APPDATA, "streamlink", "plugins", pluginFileName );
+		if ( exists( userPlugin ) ) {
+			return { pluginDir: null, bundled: false };
 		}
 	}
 

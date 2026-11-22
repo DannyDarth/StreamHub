@@ -31,12 +31,20 @@ export const parameters = [
 		null,
 		"stream.twitchPluginDir"
 	),
-	// deliberately no --twitch-proxy-playlist-fallback: if every proxy fails, the stream must
-	// not be played from Twitch's own servers with ads (or ad pauses); it fails to launch instead
 	new Parameter(
 		"--twitch-proxy-playlist",
 		null,
 		"stream.twitchProxyPlaylist"
+	),
+	// off by default: if every proxy fails, the stream must not be played from Twitch's own servers
+	// with ads; only enabled by the user when a VPN in an ad-free country is connected
+	new Parameter(
+		"--twitch-proxy-playlist-fallback",
+		"stream.twitchProxyDirect"
+	),
+	new Parameter(
+		"--twitch-backup-stream",
+		"stream.twitchBackupStream"
 	),
 	new Parameter(
 		"--webbrowser",

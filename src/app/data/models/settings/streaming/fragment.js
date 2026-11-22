@@ -37,6 +37,8 @@ export default Fragment.extend({
 	low_latency: attr( "boolean", { defaultValue: false } ),
 	twitch_proxy: attr( "boolean", { defaultValue: true } ),
 	twitch_proxy_playlist: attr( "string", { defaultValue: defaultTwitchProxies } ),
+	twitch_proxy_direct: attr( "boolean", { defaultValue: false } ),
+	twitch_backup_stream: attr( "boolean", { defaultValue: false } ),
 	player_input: attr( "string", { defaultValue: ATTR_STREAMING_PLAYER_INPUT_STDIN } ),
 	player_no_close: attr( "boolean", { defaultValue: false } ),
 	hls_live_edge: attr( "number", { defaultValue: 3, min: 1, max: 10 } ),

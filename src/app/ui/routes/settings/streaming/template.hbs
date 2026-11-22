@@ -163,6 +163,22 @@
 			}}
 		</dd>
 	</dl>
+	{{check-box
+		(t "settings.streaming.twitch-adblock.direct.checkbox")
+		checked=model.streaming.twitch_proxy_direct
+		disabled=(bool-not model.streaming.twitch_proxy)
+	}}
+	<p class="small">
+		{{t "settings.streaming.twitch-adblock.direct.description"}}
+	</p>
+	{{check-box
+		(t "settings.streaming.twitch-adblock.backup.checkbox")
+		checked=model.streaming.twitch_backup_stream
+		disabled=(bool-not twitchAdblockPluginBundled)
+	}}
+	<p class="small">
+		{{t "settings.streaming.twitch-adblock.backup.description"}}
+	</p>
 	{{#unless twitchAdblockPluginFound}}
 		<p class="small text-danger">
 			{{t "settings.streaming.twitch-adblock.missing"}}

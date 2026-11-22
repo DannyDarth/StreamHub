@@ -13,28 +13,28 @@ module( "services/streaming/provider/twitch-adblock", function() {
 
 	const existing = files => path => files.includes( path );
 
-	test( "Prefers the user's own plugin", function( assert ) {
+	test( "Prefers the bundled plugin", function( assert ) {
 		assert.propEqual(
 			findTwitchAdblockPlugin(
 				{ APPDATA: appdata },
 				execPath,
 				existing([ userPlugin, bundledPlugin ])
 			),
-			{ pluginDir: null },
-			"No --plugin-dirs needed: Streamlink loads the user's plugin itself"
-		);
-	});
-
-	test( "Falls back to the bundled plugin", function( assert ) {
-		assert.propEqual(
-			findTwitchAdblockPlugin( { APPDATA: appdata }, execPath, existing([ bundledPlugin ]) ),
-			{ pluginDir: bundledDir },
-			"Points --plugin-dirs at the bundled plugin's folder"
+			{ pluginDir: bundledDir, bundled: true },
+			"Points --plugin-dirs at the bundled plugin, which overrides the user's copy"
 		);
 		assert.propEqual(
 			findTwitchAdblockPlugin( {}, execPath, existing([ bundledPlugin ]) ),
-			{ pluginDir: bundledDir },
+			{ pluginDir: bundledDir, bundled: true },
 			"Works without an APPDATA env var"
+		);
+	});
+
+	test( "Falls back to the user's own plugin", function( assert ) {
+		assert.propEqual(
+			findTwitchAdblockPlugin( { APPDATA: appdata }, execPath, existing([ userPlugin ]) ),
+			{ pluginDir: null, bundled: false },
+			"No --plugin-dirs needed: Streamlink loads the user's plugin itself"
 		);
 	});
 
@@ -45,9 +45,9 @@ module( "services/streaming/provider/twitch-adblock", function() {
 			"Returns null, so no unknown parameters are passed to stock Streamlink"
 		);
 		assert.strictEqual(
-			findTwitchAdblockPlugin( {}, "", existing([ bundledPlugin ]) ),
+			findTwitchAdblockPlugin( {}, "", existing([ userPlugin ]) ),
 			null,
-			"Returns null without an executable path"
+			"Returns null without an executable path or APPDATA"
 		);
 	});
 });

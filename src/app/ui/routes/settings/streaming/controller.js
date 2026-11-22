@@ -32,9 +32,17 @@ export default Controller.extend({
 	contentStreamingPlayerInput,
 	twitchAdblockDocs,
 
-	// whether the streamlink-ttvlol plugin was found (bundled or installed by the user)
-	twitchAdblockPluginFound: computed(function() {
-		return !!findTwitchAdblockPlugin();
+	// the streamlink-ttvlol plugin (bundled or installed by the user), or null
+	twitchAdblockPlugin: computed(function() {
+		return findTwitchAdblockPlugin();
+	}),
+	twitchAdblockPluginFound: computed( "twitchAdblockPlugin", function() {
+		return !!get( this, "twitchAdblockPlugin" );
+	}),
+	// StreamHub's additions (backup stream) are only in the bundled plugin
+	twitchAdblockPluginBundled: computed( "twitchAdblockPlugin", function() {
+		const plugin = get( this, "twitchAdblockPlugin" );
+		return !!plugin && plugin.bundled;
 	}),
 
 	contentStreamingProvider: computed(function() {

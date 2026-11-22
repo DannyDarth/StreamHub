@@ -137,11 +137,11 @@ export default Model.extend( /** @class Stream */ {
 	// Empty (no parameters set) if disabled, if no proxies are configured,
 	// or if the plugin isn't available, since stock Streamlink would reject the parameters.
 	twitchAdblockPlugin: computed(function() {
-		if ( !get( this, "settings.streaming.twitch_proxy" ) ) { return null; }
 		return findTwitchAdblockPlugin();
 	}).volatile(),
 
 	twitchProxyServers: computed(function() {
+		if ( !get( this, "settings.streaming.twitch_proxy" ) ) { return []; }
 		if ( !get( this, "twitchAdblockPlugin" ) ) { return []; }
 		return String( get( this, "settings.streaming.twitch_proxy_playlist" ) || "" )
 			.split( "," )
@@ -174,9 +174,23 @@ export default Model.extend( /** @class Stream */ {
 		return true;
 	},
 
+	// optional: connect directly if every proxy fails (only ad-free with a VPN in an ad-free country)
+	twitchProxyDirect: computed(function() {
+		return !!get( this, "twitchProxyPlaylist" )
+			&& !!get( this, "settings.streaming.twitch_proxy_direct" );
+	}).volatile(),
+
+	// optional: ad-free lower quality backup stream during ad breaks (StreamHub's bundled plugin only)
+	twitchBackupStream: computed(function() {
+		const plugin = get( this, "twitchAdblockPlugin" );
+		return !!plugin && plugin.bundled
+			&& !!get( this, "settings.streaming.twitch_backup_stream" );
+	}).volatile(),
+
 	twitchPluginDir: computed(function() {
 		const plugin = get( this, "twitchAdblockPlugin" );
-		if ( !plugin || !plugin.pluginDir || !get( this, "twitchProxyPlaylist" ) ) { return ""; }
+		if ( !plugin || !plugin.pluginDir ) { return ""; }
+		if ( !get( this, "twitchProxyPlaylist" ) && !get( this, "twitchBackupStream" ) ) { return ""; }
 		return plugin.pluginDir;
 	}).volatile(),
 
