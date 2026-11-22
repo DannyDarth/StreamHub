@@ -1,4 +1,4 @@
-*THIS IS A MODIFIED VERSION FO STREAMLINK TWITCH GUI*
+*StreamHub is a modified version of [Streamlink Twitch GUI](https://github.com/streamlink/streamlink-twitch-gui).*
 Mainly for personal use, but if anyone wants to improve or add features, you're more than welcome.
 
 <img width="903" height="599" alt="image" src="https://github.com/user-attachments/assets/5561e81b-d98c-423c-942b-fac619c7ecdc" />
@@ -130,3 +130,7 @@ Your support is very much appreciated, thank you!
   [badge-actions]: https://img.shields.io/github/actions/workflow/status/streamlink/streamlink-twitch-gui/main.yml?branch=master&event=push&style=flat-square
   [badge-codecov]: https://img.shields.io/codecov/c/github/streamlink/streamlink-twitch-gui.svg?style=flat-square
   [badge-gitter]: https://img.shields.io/gitter/room/streamlink/streamlink-twitch-gui.svg?style=flat-square "Gitter IRC"
+
+## License
+
+StreamHub is released under the [MIT License](LICENSE). It is based on Streamlink Twitch GUI by Sebastian Meyer, also MIT-licensed; the original copyright notice is kept in [LICENSE](LICENSE).
