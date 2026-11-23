@@ -71,6 +71,10 @@ pub fn run() {
             tray.build(app)?;
 
             badge::create(app.handle())?;
+            // load kick.com in the background now: the first Kick check doesn't wait for it then
+            if let Err(e) = kick::ensure_window(app.handle()) {
+                eprintln!("Couldn't prepare Kick: {e}");
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

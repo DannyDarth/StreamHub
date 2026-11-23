@@ -173,37 +173,109 @@ function allKickSlugs(): string[] {
   return [...new Set([...state.kickSlugs, ...state.kickFollowed.map((f) => f.slug)])];
 }
 
-async function checkKickAccount() {
+const KICK_CACHE = "streamhub.kick.cache";
+
+/** Show the last Kick results right away at start-up, while fresh ones load. */
+function loadKickCache() {
   try {
-    state.kickAccount = await invoke<KickAccount>("kick_account");
-  } catch (e) {
-    state.kickAccount = null;
-    state.kickFollowed = [];
-    if (String(e) !== "not-signed-in") state.kickError = `Couldn't check your Kick sign-in: ${String(e)}`;
+    const c = JSON.parse(localStorage.getItem(KICK_CACHE) ?? "null") as {
+      account: KickAccount | null;
+      followed: KickFollowed[];
+      channels: KickChannel[];
+    } | null;
+    if (!c) return;
+    state.kickAccount = c.account;
+    state.kickFollowed = c.followed ?? [];
+    state.kickChannels = c.channels ?? [];
+  } catch {
+    // no cache
   }
 }
 
-async function refreshKick() {
+function saveKickCache() {
+  try {
+    localStorage.setItem(
+      KICK_CACHE,
+      JSON.stringify({ account: state.kickAccount, followed: state.kickFollowed, channels: state.kickChannels }),
+    );
+  } catch {
+    // storage unavailable
+  }
+}
+
+/** Set when Kick said nobody is signed in: then the followed list isn't asked for until sign-in. */
+let kickSignedOut = false;
+
+function kickNotSignedIn() {
+  kickSignedOut = true;
+  state.kickAccount = null;
+  state.kickFollowed = [];
+}
+
+async function checkKickAccount() {
+  try {
+    state.kickAccount = await invoke<KickAccount>("kick_account");
+    kickSignedOut = false;
+  } catch (e) {
+    if (String(e) === "not-signed-in") kickNotSignedIn();
+    else state.kickError = `Couldn't check your Kick sign-in: ${String(e)}`;
+  }
+  render();
+}
+
+function checkKickChannels(slugs: string[]): Promise<KickChannel[]> {
+  return slugs.length ? invoke<KickChannel[]>("kick_channels", { slugs }) : Promise.resolve([]);
+}
+
+/** Merge fresh channel checks into what's shown. */
+function mergeKickChannels(fresh: KickChannel[]) {
+  const bySlug = new Map(state.kickChannels.map((c) => [c.slug, c]));
+  for (const c of fresh) bySlug.set(c.slug, c);
+  const wanted = new Set(allKickSlugs());
+  state.kickChannels = [...bySlug.values()].filter((c) => wanted.has(c.slug));
+}
+
+let kickRefreshing: Promise<void> | null = null;
+
+function refreshKick(): Promise<void> {
+  kickRefreshing ??= doRefreshKick().finally(() => (kickRefreshing = null));
+  return kickRefreshing;
+}
+
+async function doRefreshKick() {
   state.kickLoading = true;
   render();
   try {
-    if (state.kickAccount) {
-      try {
-        state.kickFollowed = await invoke<KickFollowed[]>("kick_followed");
-      } catch (e) {
-        if (String(e) === "not-signed-in") {
-          state.kickAccount = null;
-          state.kickFollowed = [];
-        } else {
-          state.kickError = `Couldn't load the Kick channels you follow: ${String(e)}`;
-        }
-      }
-    }
-    // check the channels the user added, and the followed ones that are live (for their pictures)
-    const toCheck = [...new Set([...state.kickSlugs, ...state.kickFollowed.filter((f) => f.live).map((f) => f.slug)])];
-    const channels = toCheck.length ? await invoke<KickChannel[]>("kick_channels", { slugs: toCheck }) : [];
-    state.kickChannels = channels;
+    // the followed list and the channels added by hand load at the same time
+    const followed = kickSignedOut
+      ? Promise.resolve(null)
+      : invoke<KickFollowed[]>("kick_followed").then(
+          (list) => {
+            state.kickFollowed = list;
+            kickSignedOut = false;
+            // live followed channels show right away from the followed list
+            render();
+            return list;
+          },
+          (e) => {
+            if (String(e) === "not-signed-in") kickNotSignedIn();
+            else state.kickError = `Couldn't load the Kick channels you follow: ${String(e)}`;
+            return null;
+          },
+        );
+    const added = checkKickChannels(state.kickSlugs).then((channels) => {
+      mergeKickChannels(channels);
+      render();
+    });
+    const list = await followed;
+    // then the details (pictures) of the followed channels that are live
+    const addedSet = new Set(state.kickSlugs);
+    const liveFollowed = (list ?? []).filter((f) => f.live && !addedSet.has(f.slug)).map((f) => f.slug);
+    const details = checkKickChannels(liveFollowed).then((channels) => mergeKickChannels(channels));
+    await Promise.all([added, details]);
+
     if (!state.kickError.startsWith("Couldn't load")) state.kickError = "";
+    saveKickCache();
     const live = kickLive();
     state.kickKnown = await notifyNew(
       live.map((c) => ({ key: c.slug, name: c.name, detail: c.title || c.category })),
@@ -267,8 +339,7 @@ async function kickSignOut() {
   } catch (e) {
     state.kickError = String(e);
   }
-  state.kickAccount = null;
-  state.kickFollowed = [];
+  kickNotSignedIn();
   render();
   void refreshKick();
 }
@@ -991,6 +1062,7 @@ window.setInterval(() => {
 }, REFRESH_MS);
 void listen("kick-login-closed", async () => {
   state.message = "";
+  kickSignedOut = false;
   await checkKickAccount();
   if (!state.kickAccount) state.kickError = "Not signed in to Kick. Sign in on kick.com, then close the window.";
   await refreshKick();
@@ -999,4 +1071,7 @@ void listen("kick-login-closed", async () => {
 applyTheme(state.settings.theme);
 followSystemTheme(() => state.settings.theme);
 void start();
-void checkKickAccount().then(() => refreshKick());
+// Kick: show the last results at once, then check the account and refresh at the same time
+loadKickCache();
+void checkKickAccount();
+void refreshKick();
