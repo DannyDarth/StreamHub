@@ -143,8 +143,8 @@ const CHANNELS: &str = r#"
   };
   const slugs = __SLUGS__;
   const out = [];
-  for (let i = 0; i < slugs.length; i += 5) {
-    out.push(...await Promise.all(slugs.slice(i, i + 5).map(async (slug) => {
+  for (let i = 0; i < slugs.length; i += 10) {
+    out.push(...await Promise.all(slugs.slice(i, i + 10).map(async (slug) => {
       try {
         const res = await fetch(`/api/v2/channels/${encodeURIComponent(slug)}`, { headers: { Accept: "application/json" } });
         if (!res.ok) return { slug, status: res.status };
@@ -258,7 +258,9 @@ fn fetcher_navigation(app: &AppHandle, url: &tauri::Url) -> bool {
     url.scheme() == "https" && url.host_str() == Some("kick.com")
 }
 
-fn ensure_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+/// Create the hidden kick.com window (StreamHub does this at start-up, so it has loaded by the time
+/// the Kick channels are first checked).
+pub fn ensure_window(app: &AppHandle) -> Result<WebviewWindow, String> {
     if let Some(window) = app.get_webview_window(FETCHER) {
         return Ok(window);
     }
