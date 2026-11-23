@@ -19,11 +19,12 @@
         "height": 760,
         "minWidth": 720,
         "minHeight": 480,
-        "center": true
+        "center": true,
+        "maximized": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.twitch.tv https://id.twitch.tv; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.twitch.tv https://id.twitch.tv https://api.github.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

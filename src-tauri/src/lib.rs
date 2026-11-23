@@ -9,6 +9,16 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, WindowEvent};
 
+/// Open a StreamHub release page (from the update check) in the default browser.
+#[tauri::command]
+fn open_release_page(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    if !url.starts_with("https://github.com/DannyDarth/StreamHub/releases/") {
+        return Err("Not a StreamHub release page".into());
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
 fn show_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -37,6 +47,7 @@ pub fn run() {
             kick::kick_logout,
             chat::open_chat,
             chat::close_chat,
+            open_release_page,
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Show StreamHub", true, None::<&str>)?;

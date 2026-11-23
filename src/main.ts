@@ -17,6 +17,8 @@ import {
 import { AuthError, followedLive, validateToken } from "./twitch";
 import { loadKickSlugs, parseKickInput, saveKickSlugs } from "./kick";
 import { h } from "./ui";
+import { getVersion } from "@tauri-apps/api/app";
+import { checkForUpdate, type Update } from "./updates";
 import * as browse from "./browse";
 import type {
   AdblockStatus,
@@ -64,6 +66,8 @@ const state = {
   kickError: "",
   kickKnown: null as Set<string> | null,
   search: "",
+  update: null as Update | null,
+  appVersion: "",
   kickAccount: null as KickAccount | null,
   kickFollowed: [] as KickFollowed[],
   /** The channel shown in the chat panel. */
@@ -939,6 +943,15 @@ function settingsView(): HTMLElement {
     h("h2", {}, "Browse"),
     select("Stream language", "streamLanguage", LANGUAGES, "Top live streams and categories only show streams in this language."),
 
+    h("h2", {}, "Updates"),
+    checkbox("Check for updates", "Look for a new StreamHub version on GitHub when StreamHub starts and every few hours.", "checkUpdates"),
+    h(
+      "p",
+      {},
+      h("button", { class: "small", onclick: () => void checkUpdates(true) }, "Check now"),
+      state.appVersion ? h("span", { class: "muted" }, `  You have StreamHub ${state.appVersion}.`) : null,
+    ),
+
     h("h2", {}, "Appearance"),
     select("Theme", "theme", [
       ["dark", "Dark"],
@@ -978,6 +991,57 @@ function signInView(): HTMLElement {
     h("p", { class: "muted" }, "Sign in with Twitch to see the channels you follow."),
     h("button", { class: "primary", onclick: () => void signIn() }, "Sign in with Twitch"),
   );
+}
+
+// ---- update check ----
+
+const DISMISSED_KEY = "streamhub.update.dismissed";
+const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+
+function updateBanner(): HTMLElement | null {
+  const u = state.update;
+  if (!u || localStorage.getItem(DISMISSED_KEY) === u.version) return null;
+  return h(
+    "div",
+    { class: "banner update" },
+    h("span", {}, h("strong", {}, `StreamHub ${u.version} is available`), ` (you have ${state.appVersion}).`),
+    h(
+      "button",
+      { class: "small primary-small", onclick: () => void invoke("open_release_page", { url: u.url }) },
+      "Download",
+    ),
+    h(
+      "button",
+      {
+        class: "link",
+        onclick: () => {
+          localStorage.setItem(DISMISSED_KEY, u.version);
+          render();
+        },
+      },
+      "Later",
+    ),
+  );
+}
+
+async function checkUpdates(manual = false) {
+  if (!state.settings.checkUpdates && !manual) return;
+  try {
+    state.appVersion ||= await getVersion();
+    const update = await checkForUpdate(state.appVersion);
+    const isNew = update && update.version !== state.update?.version;
+    state.update = update;
+    if (manual && !update) state.message = `StreamHub ${state.appVersion} is the newest version.`;
+    if (manual && update) localStorage.removeItem(DISMISSED_KEY);
+    if (isNew && localStorage.getItem(DISMISSED_KEY) !== update.version) {
+      let granted = await isPermissionGranted();
+      if (!granted) granted = (await requestPermission()) === "granted";
+      if (granted) sendNotification({ title: `StreamHub ${update.version} is available`, body: "Open StreamHub to download it." });
+    }
+  } catch (e) {
+    if (manual) state.error = `Couldn't check for updates: ${String(e)}`;
+  }
+  render();
 }
 
 /** Put the section's sub-navigation on top of a page. */
@@ -1027,6 +1091,7 @@ function render() {
     header(),
     state.error ? h("div", { class: "banner error" }, state.error) : "",
     state.message ? h("div", { class: "banner" }, state.message) : "",
+    updateBanner() ?? "",
     playingBar() ?? "",
     body,
     chatBar ?? "",
@@ -1075,3 +1140,8 @@ void start();
 loadKickCache();
 void checkKickAccount();
 void refreshKick();
+void getVersion().then((v) => {
+  state.appVersion = v;
+  void checkUpdates();
+});
+window.setInterval(() => void checkUpdates(), UPDATE_EVERY_MS);
