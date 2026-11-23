@@ -328,3 +328,155 @@ https://cdn/audio.m3u8\n";
         assert!(!has_ads("#EXTINF:2.000,live\nseg.ts"));
     }
 }
+
+// ---- stream proxy for the in-app player ----
+//
+// Twitch's and Kick's video servers don't all allow requests from StreamHub's window (cross-origin
+// rules), which stopped the in-app player. The player loads playlists and video through
+// `http://stream.localhost/p?u=<address>` instead: StreamHub fetches them itself and rewrites the
+// playlists so their video segments come through here too. Only Twitch/Kick video hosts.
+
+const PROXY_BASE: &str = "http://stream.localhost/p?u=";
+
+fn allowed_video_host(url: &reqwest::Url) -> bool {
+    let Some(host) = url.host_str() else { return false };
+    let under = |d: &str| host == d || host.ends_with(&format!(".{d}"));
+    url.scheme() == "https"
+        && (under("ttvnw.net")
+            || under("twitch.tv")
+            || under("jtvnw.net")
+            || under("live-video.net")
+            || under("kick.com")
+            || under("cdn-perfprod.com")
+            || under("luminous.dev"))
+}
+
+/// The address the in-app player loads a stream URL through.
+pub fn proxied(url: &str) -> String {
+    let encoded: String = url::form_urlencoded::byte_serialize(url.as_bytes()).collect();
+    format!("{PROXY_BASE}{encoded}")
+}
+
+/// Point a playlist's entries (variants, segments, EXT-X-MAP) at the proxy.
+pub fn rewrite_playlist(text: &str, base: &reqwest::Url) -> String {
+    let absolute = |uri: &str| base.join(uri).map(|u| proxied(u.as_str())).unwrap_or_else(|_| uri.to_string());
+    let mut out = String::with_capacity(text.len() * 2);
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            out.push('\n');
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            if let Some(start) = trimmed.find("URI=\"") {
+                let rest = &trimmed[start + 5..];
+                if let Some(end) = rest.find('"') {
+                    out.push_str(&trimmed[..start + 5]);
+                    out.push_str(&absolute(&rest[..end]));
+                    out.push_str(&rest[end..]);
+                    out.push('\n');
+                    continue;
+                }
+            }
+            out.push_str(trimmed);
+        } else {
+            out.push_str(&absolute(trimmed));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn proxy_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .connect_timeout(Duration::from_secs(8))
+            .timeout(Duration::from_secs(20))
+            .build()
+            .expect("HTTP client")
+    })
+}
+
+fn respond(status: u16, content_type: &str, body: Vec<u8>) -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .status(status)
+        .header("Content-Type", content_type)
+        .header("Access-Control-Allow-Origin", "*")
+        .header("Cache-Control", "no-store")
+        .body(body)
+        .unwrap()
+}
+
+/// Handle a request to `stream.localhost`.
+pub async fn proxy(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
+    if request.method() == tauri::http::Method::OPTIONS {
+        return tauri::http::Response::builder()
+            .status(204)
+            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            .header("Access-Control-Allow-Headers", "*")
+            .body(Vec::new())
+            .unwrap();
+    }
+    let query = request.uri().query().unwrap_or_default();
+    let target = url::form_urlencoded::parse(query.as_bytes())
+        .find(|(k, _)| k == "u")
+        .map(|(_, v)| v.into_owned())
+        .unwrap_or_default();
+    let Ok(url) = reqwest::Url::parse(&target) else { return respond(400, "text/plain", b"bad address".to_vec()) };
+    if !allowed_video_host(&url) {
+        return respond(403, "text/plain", b"not a video host".to_vec());
+    }
+    let mut upstream = proxy_client().get(url.clone());
+    if let Some(range) = request.headers().get("Range") {
+        upstream = upstream.header("Range", range);
+    }
+    let res = match upstream.send().await {
+        Ok(res) => res,
+        Err(e) => return respond(502, "text/plain", e.to_string().into_bytes()),
+    };
+    let status = res.status().as_u16();
+    let content_type = res
+        .headers()
+        .get("Content-Type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let final_url = res.url().clone();
+    let body = match res.bytes().await {
+        Ok(b) => b.to_vec(),
+        Err(e) => return respond(502, "text/plain", e.to_string().into_bytes()),
+    };
+    let is_playlist = content_type.contains("mpegurl") || final_url.path().ends_with(".m3u8") || body.starts_with(b"#EXTM3U");
+    if is_playlist && status < 400 {
+        let text = String::from_utf8_lossy(&body);
+        return respond(status, "application/vnd.apple.mpegurl", rewrite_playlist(&text, &final_url).into_bytes());
+    }
+    respond(status, &content_type, body)
+}
+
+#[cfg(test)]
+mod proxy_tests {
+    use super::*;
+
+    #[test]
+    fn rewrites_playlists() {
+        let base = reqwest::Url::parse("https://video-weaver.fra05.hls.ttvnw.net/v1/playlist/abc.m3u8").unwrap();
+        let text = "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:2.000,live\nhttps://video-edge-1.abs.hls.ttvnw.net/seg1.ts\nseg2.ts\n";
+        let out = rewrite_playlist(text, &base);
+        assert!(out.contains("#EXT-X-MAP:URI=\"http://stream.localhost/p?u=https%3A%2F%2Fvideo-weaver.fra05.hls.ttvnw.net%2Fv1%2Fplaylist%2Finit.mp4\""));
+        assert!(out.contains("http://stream.localhost/p?u=https%3A%2F%2Fvideo-edge-1.abs.hls.ttvnw.net%2Fseg1.ts\n"));
+        assert!(out.contains("#EXTINF:2.000,live\n"));
+    }
+
+    #[test]
+    fn only_video_hosts() {
+        let ok = |u: &str| allowed_video_host(&reqwest::Url::parse(u).unwrap());
+        assert!(ok("https://video-weaver.fra05.hls.ttvnw.net/x.m3u8"));
+        assert!(ok("https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/x.m3u8"));
+        assert!(!ok("https://example.com/x"));
+        assert!(!ok("http://usher.ttvnw.net/x"));
+    }
+}

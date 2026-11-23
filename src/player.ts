@@ -214,7 +214,9 @@ function play(url: string) {
     if (current !== session || !data.fatal) return;
     session.retries += 1;
     if (session.retries > 5) {
-      close("The stream stopped (it may have ended).");
+      const d = data as unknown as { details?: string; response?: { code?: number } };
+      const why = [d.details, d.response?.code ? `HTTP ${d.response.code}` : ""].filter(Boolean).join(", ");
+      close(`The stream stopped (it may have ended)${why ? `: ${why}` : ""}.`);
       return;
     }
     if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {

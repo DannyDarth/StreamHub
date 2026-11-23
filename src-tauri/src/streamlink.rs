@@ -549,7 +549,9 @@ pub async fn resolve_stream(
     // Fast start: find the address directly (about a second); Streamlink below is the fallback.
     match platform {
         Platform::Kick => match crate::kick::playback(&app, &channel).await {
-            Ok(url) => return Ok(ResolvedStream { url, server: None, last: true, direct: false, index: 0 }),
+            Ok(url) => {
+                return Ok(ResolvedStream { url: crate::fastplay::proxied(&url), server: None, last: true, direct: false, index: 0 })
+            }
             Err(e) if e == "offline" => return Err("This channel isn't live.".into()),
             Err(_) => {}
         },
@@ -557,7 +559,7 @@ pub async fn resolve_stream(
             match crate::fastplay::twitch(&channel, &settings.quality, &settings.proxies, attempt, settings.direct).await {
                 Ok(found) => {
                     return Ok(ResolvedStream {
-                        url: found.url,
+                        url: crate::fastplay::proxied(&found.url),
                         server: found.server,
                         last: found.last,
                         direct: found.direct,
@@ -635,7 +637,13 @@ pub async fn resolve_stream(
     match first_url(&lines) {
         Some(url) if output.status.success() => {
             let mut next = rotation.clone();
-            Ok(ResolvedStream { url, server: tracker.server, last: !next.switch(), direct: tracker.direct, index: attempt })
+            Ok(ResolvedStream {
+                url: crate::fastplay::proxied(&url),
+                server: tracker.server,
+                last: !next.switch(),
+                direct: tracker.direct,
+                index: attempt,
+            })
         }
         _ => Err(explain_error(error.as_deref().unwrap_or("Streamlink couldn't find the stream"), ad_free_only)),
     }
