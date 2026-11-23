@@ -512,6 +512,8 @@ pub struct ResolvedStream {
     direct: bool,
     /// Index in the proxy list of the server used: after an ad, StreamHub asks again from the next.
     index: usize,
+    /// The qualities the player can switch between (empty when unknown).
+    qualities: Vec<crate::fastplay::Quality>,
 }
 
 fn first_url(lines: &[String]) -> Option<String> {
@@ -549,8 +551,18 @@ pub async fn resolve_stream(
     // Fast start: find the address directly (about a second); Streamlink below is the fallback.
     match platform {
         Platform::Kick => match crate::kick::playback(&app, &channel).await {
-            Ok(url) => {
-                return Ok(ResolvedStream { url: crate::fastplay::proxied(&url), server: None, last: true, direct: false, index: 0 })
+            Ok(master) => {
+                let (url, qualities) = crate::fastplay::from_master(&master, &settings.quality)
+                    .await
+                    .unwrap_or_else(|_| (master.clone(), Vec::new()));
+                return Ok(ResolvedStream {
+                    url: crate::fastplay::proxied(&url),
+                    server: None,
+                    last: true,
+                    direct: false,
+                    index: 0,
+                    qualities,
+                });
             }
             Err(e) if e == "offline" => return Err("This channel isn't live.".into()),
             Err(_) => {}
@@ -560,6 +572,7 @@ pub async fn resolve_stream(
                 Ok(found) => {
                     return Ok(ResolvedStream {
                         url: crate::fastplay::proxied(&found.url),
+                        qualities: found.qualities,
                         server: found.server,
                         last: found.last,
                         direct: found.direct,
@@ -643,6 +656,7 @@ pub async fn resolve_stream(
                 last: !next.switch(),
                 direct: tracker.direct,
                 index: attempt,
+                qualities: Vec::new(),
             })
         }
         _ => Err(explain_error(error.as_deref().unwrap_or("Streamlink couldn't find the stream"), ad_free_only)),

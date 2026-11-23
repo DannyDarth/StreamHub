@@ -429,3 +429,12 @@ body.with-chat #player-host.mini { right: 356px; }
 body.player-full { overflow: hidden; }
 /* an ad that got through with no proxy left: hidden and muted */
 #player-host.blocking .player-video { opacity: 0; }
+.player-quality {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+#player-host.mini .player-quality { padding: 2px 4px; font-size: 12px; }

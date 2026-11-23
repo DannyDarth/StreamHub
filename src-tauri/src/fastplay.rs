@@ -59,7 +59,7 @@ pub fn has_ads(playlist: &str) -> bool {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Variant {
+pub struct Variant {
     uri: String,
     video: String,
     height: u32,
@@ -102,6 +102,40 @@ fn variants(master: &str, master_url: &str) -> Vec<Variant> {
         });
     }
     out
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Quality {
+    pub name: String,
+    pub url: String,
+}
+
+/// The qualities to choose from in the player, best first ("1080p60", "720p", ...).
+pub fn qualities(variants: &[Variant]) -> Vec<Quality> {
+    let mut sorted: Vec<&Variant> = variants.iter().collect();
+    sorted.sort_by(|a, b| (b.height, b.fps as u32).cmp(&(a.height, a.fps as u32)));
+    let mut out: Vec<Quality> = Vec::new();
+    for v in sorted {
+        let fps = if v.fps >= 45.0 { format!("{}", v.fps.round() as u32) } else { String::new() };
+        let name = if v.height > 0 { format!("{}p{fps}", v.height) } else { v.video.clone() };
+        if !out.iter().any(|q| q.name == name) {
+            out.push(Quality { name, url: proxied(&v.uri) });
+        }
+    }
+    out
+}
+
+/// Fetch a master playlist (Kick) and pick the quality; returns (media address, qualities).
+pub async fn from_master(master_url: &str, quality: &str) -> Result<(String, Vec<Quality>), String> {
+    let res = proxy_client().get(master_url).send().await.map_err(|e| e.to_string())?;
+    let base = res.url().to_string();
+    let text = res.text().await.map_err(|e| e.to_string())?;
+    if !valid_master(&text) {
+        return Err("no playlist".into());
+    }
+    let v = variants(&text, &base);
+    let media = pick(&v, quality).ok_or("no video")?;
+    Ok((media, qualities(&v)))
 }
 
 /// Pick the variant for a quality setting ("best", "worst", "720p60", "480p", or a list "720p60,best").
@@ -195,7 +229,7 @@ async fn token_and_master(client: &reqwest::Client, channel: &str) -> Result<(St
 }
 
 /// One route: the media playlist address for this quality, or why it failed.
-async fn try_route(route: Route, channel: String, quality: String) -> Result<String, String> {
+async fn try_route(route: Route, channel: String, quality: String) -> Result<(String, Vec<Quality>), String> {
     let (master_url, master) = match &route {
         Route::Forward { host, port } => token_and_master(&client(Some((host, *port)))?, &channel).await?,
         Route::Direct => token_and_master(&client(None)?, &channel).await?,
@@ -218,19 +252,21 @@ async fn try_route(route: Route, channel: String, quality: String) -> Result<Str
             (url.to_string(), text)
         }
     };
-    let media = pick(&variants(&master, &master_url), &quality).ok_or("no video")?;
+    let all = variants(&master, &master_url);
+    let media = pick(&all, &quality).ok_or("no video")?;
     // skip a server whose stream starts with ads
     let playlist = client(None)?.get(&media).send().await.map_err(|e| e.to_string())?.text().await.map_err(|e| e.to_string())?;
     if has_ads(&playlist) {
         return Err("ads".into());
     }
-    Ok(media)
+    Ok((media, qualities(&all)))
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Found {
     pub url: String,
+    pub qualities: Vec<Quality>,
     pub server: Option<String>,
     /// Index in the proxy list of the server used: after an ad, ask again from the next one.
     pub index: usize,
@@ -252,7 +288,7 @@ pub async fn twitch(channel: &str, quality: &str, proxies: &[String], start: usi
         .filter_map(|(i, entry)| Route::parse(entry).map(|r| (i, r)))
         .collect();
     let count = routes.len();
-    let mut results: Vec<Option<Result<String, String>>> = vec![None; count];
+    let mut results: Vec<Option<Result<(String, Vec<Quality>), String>>> = vec![None; count];
     let mut set = JoinSet::new();
     for (pos, (_, route)) in routes.iter().enumerate() {
         let (route, channel, quality) = (route.clone(), channel.to_string(), quality.to_string());
@@ -265,9 +301,16 @@ pub async fn twitch(channel: &str, quality: &str, proxies: &[String], start: usi
         for (pos, result) in results.iter().enumerate() {
             match result {
                 None => break,
-                Some(Ok(url)) => {
+                Some(Ok((url, qualities))) => {
                     let (index, route) = &routes[pos];
-                    return Ok(Found { url: url.clone(), server: Some(route.label()), index: *index, last: pos + 1 >= count, direct: false });
+                    return Ok(Found {
+                        url: url.clone(),
+                        qualities: qualities.clone(),
+                        server: Some(route.label()),
+                        index: *index,
+                        last: pos + 1 >= count,
+                        direct: false,
+                    });
                 }
                 Some(Err(_)) => continue,
             }
@@ -278,8 +321,8 @@ pub async fn twitch(channel: &str, quality: &str, proxies: &[String], start: usi
         return Err("offline".into());
     }
     if direct {
-        let url = try_route(Route::Direct, channel.to_string(), quality.to_string()).await?;
-        return Ok(Found { url, server: None, index: list.len(), last: true, direct: true });
+        let (url, qualities) = try_route(Route::Direct, channel.to_string(), quality.to_string()).await?;
+        return Ok(Found { url, qualities, server: None, index: list.len(), last: true, direct: true });
     }
     Err("no-ad-free".into())
 }
@@ -319,6 +362,8 @@ https://cdn/audio.m3u8\n";
         assert_eq!(pick(&v, "480p").as_deref(), Some("https://proxy/playlist/480p30.m3u8"));
         assert_eq!(pick(&v, "worst").as_deref(), Some("https://proxy/playlist/480p30.m3u8"));
         assert_eq!(pick(&v, "160p").as_deref(), Some("https://cdn/chunked.m3u8"), "falls back to best");
+        let names: Vec<String> = qualities(&v).into_iter().map(|q| q.name).collect();
+        assert_eq!(names, ["1080p60", "720p60", "480p"]);
     }
 
     #[test]

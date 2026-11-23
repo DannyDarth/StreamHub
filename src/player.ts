@@ -38,6 +38,9 @@ interface Current {
   /** An ad is on screen right now (blacked out and muted). */
   blocking: boolean;
   resolving: boolean;
+  qualities: Quality[];
+  /** The quality playing (its name), kept when switching proxies. */
+  quality: string | null;
 }
 
 interface Resolved {
@@ -47,6 +50,12 @@ interface Resolved {
   direct: boolean;
   /** The proxy used (index in the list): after an ad, the next one is tried. */
   index: number;
+  qualities: Quality[];
+}
+
+interface Quality {
+  name: string;
+  url: string;
 }
 
 const VOLUME_KEY = "streamhub.player.volume";
@@ -159,15 +168,19 @@ async function resolve() {
   session.resolving = true;
   setNotice(session.attempt > 0 ? "Switching to another ad-free server…" : "Finding the stream…");
   try {
+    const settings = ctx.settings();
     const r = await invoke<Resolved>("resolve_stream", {
       platform: session.platform,
       channel: session.channel,
-      settings: ctx.settings(),
+      // keep the quality picked in the player (then the setting's, as a fallback)
+      settings: session.quality ? { ...settings, quality: `${session.quality},${settings.quality}` } : settings,
       attempt: session.attempt,
     });
     if (current !== session) return;
     session.attempt = r.index;
     session.last = r.last;
+    session.qualities = r.qualities;
+    session.quality = r.qualities.find((q) => q.url === r.url)?.name ?? session.quality;
     session.status =
       session.platform === "kick"
         ? null
@@ -264,6 +277,26 @@ function chip(status: AdblockStatus | null, platform: Platform): HTMLElement | n
   return h("span", { class: `chip ${status.level}`, title: status.detail }, status.label, status.server ? ` · ${status.server}` : "");
 }
 
+function qualitySelect(c: Current): HTMLElement {
+  const select = h(
+    "select",
+    {
+      class: "player-quality",
+      title: "Stream quality",
+      onchange: (e) => {
+        const name = (e.target as HTMLSelectElement).value;
+        const q = c.qualities.find((x) => x.name === name);
+        if (!q || current !== c) return;
+        c.quality = q.name;
+        setNotice(`Switching to ${q.name}…`);
+        play(q.url);
+      },
+    },
+    ...c.qualities.map((q) => h("option", { value: q.name, selected: q.name === c.quality }, q.name)),
+  );
+  return select;
+}
+
 function renderBar() {
   if (!current) {
     bar.replaceChildren();
@@ -278,6 +311,7 @@ function renderBar() {
     chip(c.status, c.platform),
     h("span", { class: "player-spacer" }),
     c.mode === "mini" ? button("⤢", "Show the stream", () => expand()) : null,
+    c.mode === "full" && c.qualities.length > 1 ? qualitySelect(c) : null,
     c.mode === "full" && ctx.chatEnabled() && !fullscreen ? button("Chat", "Open chat", () => ctx.openChat(c.platform, c.channel)) : null,
     c.mode === "full" ? button(fullscreen ? "Exit full screen" : "Full screen", "Full screen (Esc to leave)", () => void setFullscreen(!fullscreen)) : null,
     c.mode === "full" && !fullscreen ? button("Open in player", "Watch in your video player instead", () => toExternal()) : null,
@@ -322,6 +356,8 @@ export function open(platform: Platform, channel: string): number {
     retries: 0,
     blocking: false,
     resolving: false,
+    qualities: [],
+    quality: null,
   };
   layout();
   void resolve();
