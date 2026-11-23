@@ -24,6 +24,7 @@ export const DEFAULTS: Settings = {
   buffer: "normal",
   streamLanguage: "",
   checkUpdates: true,
+  playIn: "external",
 };
 
 /** Languages for the browse pages' filter. */

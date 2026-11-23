@@ -20,6 +20,7 @@ import { h } from "./ui";
 import { getVersion } from "@tauri-apps/api/app";
 import { checkForUpdate, type Update } from "./updates";
 import * as browse from "./browse";
+import * as player from "./player";
 import type {
   AdblockStatus,
   EndedEvent,
@@ -42,6 +43,8 @@ type View = "twitch" | "kick" | "settings";
 interface Playing {
   platform: Platform;
   channel: string;
+  /** Playing in StreamHub's own player. */
+  inApp?: boolean;
   status: AdblockStatus | null;
 }
 
@@ -369,11 +372,18 @@ function removeKick(slug: string) {
   render();
 }
 
-async function watch(platform: Platform, channel: string) {
+async function watch(platform: Platform, channel: string, where: Settings["playIn"] = state.settings.playIn) {
   state.error = "";
   try {
-    const id = await invoke<number>("watch", { platform, channel, settings: state.settings });
-    state.playing.set(id, { platform, channel, status: null });
+    const inApp = where === "app" && player.supported();
+    const started = await invoke<{ id: number; url: string | null }>("watch", {
+      platform,
+      channel,
+      settings: { ...state.settings, playInApp: inApp },
+    });
+    const id = started.id;
+    state.playing.set(id, { platform, channel, status: null, inApp });
+    if (inApp && started.url) await player.open(id, platform, channel.toLowerCase(), started.url);
     if (state.settings.chatEnabled && state.settings.chatAutoOpen) void openChat(platform, channel);
   } catch (e) {
     state.error = String(e);
@@ -422,7 +432,7 @@ function updateSettings(patch: Partial<Settings>) {
   if (patch.streamLanguage !== undefined) browse.clearCache();
 }
 
-function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider">(
+function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider" | "playIn">(
   label: string,
   key: K,
   options: readonly (readonly [string, string])[],
@@ -546,6 +556,8 @@ function header(): HTMLElement {
         class: `tab tab-${view}${state.view === view ? " active" : ""}`,
         onclick: () => {
           state.view = view;
+          // browsing: the stream keeps playing in the corner
+          player.minimize();
           if (view === "settings") void loadInfo();
           render();
         },
@@ -602,10 +614,17 @@ function playingBar(): HTMLElement | null {
               `${p.status.adsCovered} ads blocked · ${p.status.adsGotThrough} filtered`,
             )
           : null,
-        state.settings.chatEnabled
-          ? h("button", { class: "small push", onclick: () => void openChat(p.platform, p.channel) }, "Chat")
+        p.inApp
+          ? h("button", { class: "small push", onclick: () => player.expand() }, "Show")
           : null,
-        h("button", { class: `small${state.settings.chatEnabled ? "" : " push"}`, onclick: () => void stop(id) }, "Stop"),
+        state.settings.chatEnabled
+          ? h("button", { class: `small${p.inApp ? "" : " push"}`, onclick: () => void openChat(p.platform, p.channel) }, "Chat")
+          : null,
+        h(
+          "button",
+          { class: `small${state.settings.chatEnabled || p.inApp ? "" : " push"}`, onclick: () => void stop(id) },
+          "Stop",
+        ),
       ),
     ),
   );
@@ -876,6 +895,15 @@ function settingsView(): HTMLElement {
     textInput("Streamlink path (optional)", "streamlinkPath", "Found automatically"),
     textInput("Video player (optional)", "playerPath", "Streamlink's default (VLC)"),
     h("label", { class: "field" }, h("span", {}, "Quality"), quality),
+    select(
+      "Play streams in",
+      "playIn",
+      [
+        ["external", "My video player (VLC, mpv…)"],
+        ["app", "StreamHub (beta)"],
+      ],
+      "StreamHub (beta): streams play inside StreamHub, with the same ad blocking. Back keeps the stream playing in the corner while you browse.",
+    ),
     checkbox("Low latency", "Smaller delay, may buffer more often (Twitch).", "lowLatency"),
     select(
       "Smoother playback",
@@ -1111,12 +1139,14 @@ void listen<StatusEvent>("adblock-status", ({ payload }) => {
     p.status = payload.status;
     render();
   }
+  player.setStatus(payload.id, payload.status);
 });
 
 void listen<EndedEvent>("stream-ended", ({ payload }) => {
   const p = state.playing.get(payload.id);
   if (p) closeChatOf(p.platform, p.channel);
   state.playing.delete(payload.id);
+  player.ended(payload.id, payload.error);
   if (payload.error) state.error = `${payload.channel}: ${payload.error}`;
   render();
 });
@@ -1131,6 +1161,16 @@ void listen("kick-login-closed", async () => {
   await checkKickAccount();
   if (!state.kickAccount) state.kickError = "Not signed in to Kick. Sign in on kick.com, then close the window.";
   await refreshKick();
+});
+
+player.init({
+  stop: (id) => stop(id),
+  openExternal: (platform, channel) => void watch(platform, channel, "external"),
+  chatEnabled: () => state.settings.chatEnabled,
+  openChat: (platform, channel) => void openChat(platform, channel),
+  closeChat: () => {
+    if (state.chat) void closeChat();
+  },
 });
 
 applyTheme(state.settings.theme);

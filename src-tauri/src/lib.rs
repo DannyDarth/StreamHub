@@ -2,6 +2,7 @@ mod adblock;
 mod auth;
 mod badge;
 mod chat;
+mod in_app;
 mod kick;
 mod streamlink;
 

@@ -52,6 +52,8 @@ export interface Settings {
   streamLanguage: string;
   /** Look for a new StreamHub version on GitHub. */
   checkUpdates: boolean;
+  /** Where streams play: the user's video player, or StreamHub's own player. */
+  playIn: "external" | "app";
 }
 
 export type ChatProvider = "panel" | "browser" | "chatterino";

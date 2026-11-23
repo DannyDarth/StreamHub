@@ -17,6 +17,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::adblock::{self, Event, Level, ProxyRotation, Status, Tracker};
 use crate::badge;
+use crate::in_app;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -49,6 +50,9 @@ pub struct WatchSettings {
     /// "normal", "more" or "most": how many seconds of video Streamlink keeps buffered.
     #[serde(default)]
     pub buffer: Option<String>,
+    /// "Play in StreamHub": the stream goes to StreamHub's own player instead of an external one.
+    #[serde(default)]
+    pub play_in_app: bool,
 }
 
 /// Streamlink's buffering options for the "Smoother playback" setting. More buffer means fewer
@@ -256,12 +260,17 @@ pub fn build_args(
     rotation: &ProxyRotation,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec!["--loglevel".into(), "info".into()];
-    if let Some(player) = settings.player_path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        args.push("--player".into());
-        args.push(player.into());
+    if settings.play_in_app {
+        // the stream goes to StreamHub (see in_app.rs); Streamlink's log goes to stderr then
+        args.push("--stdout".into());
+    } else {
+        if let Some(player) = settings.player_path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            args.push("--player".into());
+            args.push(player.into());
+        }
+        args.push("--title".into());
+        args.push(format!("{channel} - StreamHub").into());
     }
-    args.push("--title".into());
-    args.push(format!("{channel} - StreamHub").into());
     let low_latency = platform == Platform::Twitch && settings.low_latency;
     if low_latency {
         args.push("--twitch-low-latency".into());
@@ -314,6 +323,8 @@ struct Runner {
     exe: PathBuf,
     plugin: Option<Plugin>,
     session: Arc<Session>,
+    /// Play in StreamHub: where Streamlink's output waits for StreamHub's player.
+    slot: Option<Arc<in_app::StreamSlot>>,
 }
 
 impl Runner {
@@ -322,7 +333,7 @@ impl Runner {
             "adblock-status",
             StatusEvent { id: self.id, channel: &self.channel, status },
         );
-        if self.settings.badge && self.plugin.is_some() {
+        if self.settings.badge && self.plugin.is_some() && !self.settings.play_in_app {
             badge::show(&self.app, pid, status);
         }
     }
@@ -359,7 +370,10 @@ impl Runner {
             let pid = child.id();
             let (tx, rx) = mpsc::channel();
             if let Some(out) = child.stdout.take() {
-                spawn_reader(out, tx.clone());
+                match &self.slot {
+                    Some(slot) => slot.put(out),
+                    None => spawn_reader(out, tx.clone()),
+                }
             }
             if let Some(err) = child.stderr.take() {
                 spawn_reader(err, tx);
@@ -437,6 +451,9 @@ impl Runner {
             "stream-ended",
             EndedEvent { id: self.id, channel: &self.channel, code, error },
         );
+        if let Some(slot) = &self.slot {
+            slot.close();
+        }
         let streams = self.app.state::<Streams>();
         let mut sessions = streams.sessions.lock().unwrap();
         sessions.remove(&self.id);
@@ -446,7 +463,14 @@ impl Runner {
     }
 }
 
-/// Start watching a Twitch channel. Returns the stream's id.
+#[derive(Serialize)]
+pub struct Started {
+    id: u64,
+    /// Play in StreamHub: the address StreamHub's player loads the stream from.
+    url: Option<String>,
+}
+
+/// Start watching a channel. Returns the stream's id (and the player address when playing in StreamHub).
 #[tauri::command]
 pub fn watch(
     app: AppHandle,
@@ -454,7 +478,7 @@ pub fn watch(
     platform: Platform,
     channel: String,
     settings: WatchSettings,
-) -> Result<u64, String> {
+) -> Result<Started, String> {
     let channel = channel.to_ascii_lowercase();
     let valid = match platform {
         Platform::Twitch => valid_channel(&channel),
@@ -483,9 +507,17 @@ pub fn watch(
     let session = Arc::new(Session::default());
     streams.sessions.lock().unwrap().insert(id, session.clone());
 
-    let runner = Runner { app, platform, id, channel, settings, exe, plugin, session };
+    let (slot, url) = if settings.play_in_app {
+        let slot = Arc::new(in_app::StreamSlot::default());
+        let url = in_app::start(slot.clone()).map_err(|e| format!("Couldn't start StreamHub's player: {e}"))?;
+        (Some(slot), Some(url))
+    } else {
+        (None, None)
+    };
+
+    let runner = Runner { app, platform, id, channel, settings, exe, plugin, session, slot };
     std::thread::spawn(move || runner.run());
-    Ok(id)
+    Ok(Started { id, url })
 }
 
 /// Stop a stream started with `watch`.
@@ -550,6 +582,15 @@ mod tests {
         s.buffer = Some("most".into());
         let args = strings(build_args(Platform::Kick, "x", &s, None, &ProxyRotation::new(vec![])));
         assert!(args.windows(2).any(|w| w == ["--hls-live-edge", "10"]));
+    }
+
+    #[test]
+    fn in_app_args() {
+        let mut s = settings();
+        s.play_in_app = true;
+        s.player_path = Some("vlc.exe".into());
+        let args = strings(build_args(Platform::Kick, "x", &s, None, &ProxyRotation::new(vec![])));
+        assert_eq!(args, ["--loglevel", "info", "--stdout", "https://kick.com/x", "best"]);
     }
 
     #[test]
