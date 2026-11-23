@@ -510,6 +510,8 @@ pub struct ResolvedStream {
     last: bool,
     /// True when Twitch is played directly (no proxy worked and "Direct through my VPN" is on).
     direct: bool,
+    /// Index in the proxy list of the server used: after an ad, StreamHub asks again from the next.
+    index: usize,
 }
 
 fn first_url(lines: &[String]) -> Option<String> {
@@ -543,6 +545,37 @@ pub async fn resolve_stream(
         return Err("Invalid stream quality".into());
     }
     settings.play_in_app = true;
+
+    // Fast start: find the address directly (about a second); Streamlink below is the fallback.
+    match platform {
+        Platform::Kick => match crate::kick::playback(&app, &channel).await {
+            Ok(url) => return Ok(ResolvedStream { url, server: None, last: true, direct: false, index: 0 }),
+            Err(e) if e == "offline" => return Err("This channel isn't live.".into()),
+            Err(_) => {}
+        },
+        Platform::Twitch if settings.proxy_enabled && find_plugin(&app).is_some() => {
+            match crate::fastplay::twitch(&channel, &settings.quality, &settings.proxies, attempt, settings.direct).await {
+                Ok(found) => {
+                    return Ok(ResolvedStream {
+                        url: found.url,
+                        server: found.server,
+                        last: found.last,
+                        direct: found.direct,
+                        index: found.index,
+                    })
+                }
+                Err(e) if e == "offline" => return Err("This channel isn't live.".into()),
+                Err(e) if e == "no-ad-free" => {
+                    return Err("No ad-free stream is available right now: every proxy failed or served ads. \
+                                StreamHub won't play the stream with ads."
+                        .into())
+                }
+                Err(_) => {}
+            }
+        }
+        Platform::Twitch => {}
+    }
+
     let exe = find_streamlink(settings.streamlink_path.as_deref()).ok_or(
         "Streamlink wasn't found. Install it from streamlink.github.io or set its path in Settings.",
     )?;
@@ -602,7 +635,7 @@ pub async fn resolve_stream(
     match first_url(&lines) {
         Some(url) if output.status.success() => {
             let mut next = rotation.clone();
-            Ok(ResolvedStream { url, server: tracker.server, last: !next.switch(), direct: tracker.direct })
+            Ok(ResolvedStream { url, server: tracker.server, last: !next.switch(), direct: tracker.direct, index: attempt })
         }
         _ => Err(explain_error(error.as_deref().unwrap_or("Streamlink couldn't find the stream"), ad_free_only)),
     }

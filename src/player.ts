@@ -45,6 +45,8 @@ interface Resolved {
   server: string | null;
   last: boolean;
   direct: boolean;
+  /** The proxy used (index in the list): after an ad, the next one is tried. */
+  index: number;
 }
 
 const VOLUME_KEY = "streamhub.player.volume";
@@ -164,6 +166,7 @@ async function resolve() {
       attempt: session.attempt,
     });
     if (current !== session) return;
+    session.attempt = r.index;
     session.last = r.last;
     session.status =
       session.platform === "kick"

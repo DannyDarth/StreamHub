@@ -2,6 +2,7 @@ mod adblock;
 mod auth;
 mod badge;
 mod chat;
+mod fastplay;
 mod kick;
 mod streamlink;
 
