@@ -2,7 +2,6 @@ mod adblock;
 mod auth;
 mod badge;
 mod chat;
-mod in_app;
 mod kick;
 mod streamlink;
 
@@ -37,6 +36,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             auth::twitch_login,
             streamlink::watch,
+            streamlink::resolve_stream,
             streamlink::stop,
             streamlink::streamlink_info,
             badge::badge_hide,

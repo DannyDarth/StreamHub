@@ -427,3 +427,5 @@ body.with-chat #player-host.mini { right: 356px; }
 .player-notice.visible { display: flex; }
 /* while the player fills the window, the page behind it doesn't scroll */
 body.player-full { overflow: hidden; }
+/* an ad that got through with no proxy left: hidden and muted */
+#player-host.blocking .player-video { opacity: 0; }

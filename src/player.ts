@@ -1,15 +1,21 @@
 // "Play in StreamHub": the in-app player. One stream at a time, shown full size below the header
 // or as a mini-player in the corner while browsing. The video element lives outside the app's
 // re-rendered content, so it keeps playing while pages change.
+//
+// Streamlink (with the ad blocking plugin) finds the stream's ad-free HLS address; hls.js plays
+// it. If Twitch puts an ad into the playlist, the player asks Streamlink again with the next
+// proxy; with no proxy left it blacks out and mutes the ad instead of showing it.
 
-import mpegts from "mpegts.js";
+import Hls from "hls.js";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { h } from "./ui";
-import type { AdblockStatus, Platform } from "./types";
+import type { AdblockStatus, Platform, Settings } from "./types";
 
 export interface PlayerCtx {
-  /** Stop the Streamlink session behind the player. */
-  stop(id: number): Promise<void>;
+  settings(): Settings;
+  /** The player closed (stopped, or the stream ended): with an error to show, if any. */
+  closed(id: number, error: string | null): void;
   /** Play this channel in the external player instead. */
   openExternal(platform: Platform, channel: string): void;
   chatEnabled(): boolean;
@@ -21,12 +27,24 @@ interface Current {
   id: number;
   platform: Platform;
   channel: string;
-  url: string;
   mode: "full" | "mini";
   status: AdblockStatus | null;
-  player: mpegts.Player | null;
+  hls: Hls | null;
+  /** Which proxy Streamlink tries first (0 = the first in the list). */
+  attempt: number;
+  /** No other proxy to switch to. */
+  last: boolean;
   retries: number;
-  retryTimer?: number;
+  /** An ad is on screen right now (blacked out and muted). */
+  blocking: boolean;
+  resolving: boolean;
+}
+
+interface Resolved {
+  url: string;
+  server: string | null;
+  last: boolean;
+  direct: boolean;
 }
 
 const VOLUME_KEY = "streamhub.player.volume";
@@ -53,7 +71,10 @@ export function init(context: PlayerCtx): void {
   } catch {
     // no saved volume
   }
+  savedMuted = video.muted;
   video.addEventListener("volumechange", () => {
+    if (current?.blocking) return;
+    savedMuted = video.muted;
     try {
       localStorage.setItem(VOLUME_KEY, JSON.stringify({ volume: video.volume, muted: video.muted }));
     } catch {
@@ -72,7 +93,7 @@ export function init(context: PlayerCtx): void {
 }
 
 export function supported(): boolean {
-  return mpegts.getFeatureList().mseLivePlayback;
+  return Hls.isSupported();
 }
 
 export function activeId(): number | null {
@@ -85,70 +106,152 @@ function setNotice(text: string) {
 }
 
 function destroyPlayer() {
-  if (!current) return;
-  window.clearTimeout(current.retryTimer);
-  if (current.player) {
-    try {
-      current.player.pause();
-      current.player.unload();
-      current.player.detachMediaElement();
-      current.player.destroy();
-    } catch {
-      // already gone
-    }
-    current.player = null;
+  if (!current?.hls) return;
+  try {
+    current.hls.destroy();
+  } catch {
+    // already gone
+  }
+  current.hls = null;
+}
+
+function status(level: AdblockStatus["level"], label: string, detail: string, server: string | null = null): AdblockStatus {
+  return { level, label, detail, server, adsCovered: 0, adsGotThrough: 0 };
+}
+
+/** Twitch marks the ads it puts into a playlist (the same markers the iOS app and the plugin look for). */
+function playlistHasAds(details: unknown): boolean {
+  const d = details as {
+    dateRanges?: Record<string, { id?: string; class?: string; attr?: Record<string, string> }>;
+    fragments?: { title?: string | null; tagList?: string[][] }[];
+  };
+  for (const range of Object.values(d.dateRanges ?? {})) {
+    const cls = range.class ?? range.attr?.CLASS ?? "";
+    if (cls === "twitch-stitched-ad" || String(range.id ?? "").startsWith("stitched-ad")) return true;
+    if (Object.keys(range.attr ?? {}).some((k) => k.startsWith("X-TV-TWITCH-AD"))) return true;
+  }
+  return (d.fragments ?? []).some((f) => typeof f.title === "string" && f.title.startsWith("Amazon"));
+}
+
+/** Black out and mute an ad that got through (no proxy left to switch to). */
+function setBlocking(on: boolean) {
+  if (!current || current.blocking === on) return;
+  current.blocking = on;
+  host.classList.toggle("blocking", on);
+  video.muted = on ? true : savedMuted;
+  if (on) {
+    current.status = status("warn", "Ad blocked", "Hidden and muted until the stream is back");
+    setNotice("Ad break: hidden until the stream is back");
+  } else {
+    setNotice("");
+  }
+  renderBar();
+}
+
+let savedMuted = false;
+
+/** Ask Streamlink for the stream's ad-free address (with the proxy for this attempt) and play it. */
+async function resolve() {
+  const session = current;
+  if (!session || session.resolving) return;
+  session.resolving = true;
+  setNotice(session.attempt > 0 ? "Switching to another ad-free server…" : "Finding the stream…");
+  try {
+    const r = await invoke<Resolved>("resolve_stream", {
+      platform: session.platform,
+      channel: session.channel,
+      settings: ctx.settings(),
+      attempt: session.attempt,
+    });
+    if (current !== session) return;
+    session.last = r.last;
+    session.status =
+      session.platform === "kick"
+        ? null
+        : r.direct
+          ? status("warn", "Direct through your VPN", "No proxy worked")
+          : status("ok", "Ad-free stream", r.server ? `via ${r.server}` : "", r.server);
+    renderBar();
+    play(r.url);
+  } catch (e) {
+    if (current === session) close(String(e));
+  } finally {
+    session.resolving = false;
   }
 }
 
-/** (Re)connect to the stream: after a start, a proxy switch or a hiccup. */
-function connect() {
-  if (!current) return;
-  destroyPlayer();
+function play(url: string) {
   const session = current;
-  const player = mpegts.createPlayer(
-    { type: "mpegts", isLive: true, url: session.url },
-    {
-      enableWorker: false,
-      lazyLoad: false,
-      // Don't jump ahead to catch up with live: the jumps land between keyframes, which showed
-      // as blocky, smeared video. Streamlink already starts close to live.
-      liveBufferLatencyChasing: false,
-      liveSync: false,
-      // a bigger first chunk so playback starts on whole frames
-      stashInitialSize: 1024 * 1024,
-    },
-  );
-  session.player = player;
-  player.attachMediaElement(video);
-  player.load();
-  void Promise.resolve(player.play()).catch(() => {
-    // autoplay blocked: the user can press play
+  if (!session) return;
+  destroyPlayer();
+  const hls = new Hls({
+    lowLatencyMode: false,
+    liveSyncDurationCount: 3,
+    maxBufferLength: 30,
+    backBufferLength: 30,
+    manifestLoadingMaxRetry: 2,
+    levelLoadingMaxRetry: 4,
   });
-  const retry = () => {
-    if (current !== session || session.retryTimer) return;
+  session.hls = hls;
+  hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
+    if (current !== session || session.platform !== "twitch") return;
+    const ads = playlistHasAds(data.details);
+    if (ads && !session.last && !ctx.settings().direct) {
+      // switch proxies before the ad plays
+      session.attempt += 1;
+      session.status = status("warn", "Switching proxy", "Ad detected, trying the next server");
+      setBlocking(false);
+      renderBar();
+      void resolve();
+    } else {
+      setBlocking(ads);
+    }
+  });
+  hls.on(Hls.Events.ERROR, (_event, data) => {
+    if (current !== session || !data.fatal) return;
     session.retries += 1;
-    if (session.retries > 30) {
-      setNotice("The stream stopped.");
+    if (session.retries > 5) {
+      close("The stream stopped (it may have ended).");
       return;
     }
-    setNotice(session.status?.label === "Switching proxy" ? "Switching to another ad-free server…" : "Reconnecting…");
-    session.retryTimer = window.setTimeout(() => {
-      session.retryTimer = undefined;
-      if (current === session) connect();
-    }, 1500);
-  };
-  player.on(mpegts.Events.ERROR, retry);
-  player.on(mpegts.Events.LOADING_COMPLETE, retry);
+    if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+      hls.recoverMediaError();
+    } else {
+      // the address may have expired, or the stream restarted: ask Streamlink again
+      void resolve();
+    }
+  });
   video.addEventListener(
     "playing",
     () => {
       if (current === session) {
         session.retries = 0;
-        setNotice("");
+        if (!session.blocking) setNotice("");
       }
     },
     { once: true },
   );
+  hls.loadSource(url);
+  hls.attachMedia(video);
+  void video.play().catch(() => {
+    // autoplay blocked: the user can press play
+  });
+}
+
+/** Close the player, telling the app why (null: stopped by the user). */
+function close(error: string | null) {
+  if (!current) return;
+  const id = current.id;
+  destroyPlayer();
+  if (fullscreen) void setFullscreen(false);
+  host.classList.remove("blocking");
+  if (current.blocking) video.muted = savedMuted;
+  current = null;
+  video.removeAttribute("src");
+  video.load();
+  setNotice("");
+  layout();
+  ctx.closed(id, error);
 }
 
 function chip(status: AdblockStatus | null, platform: Platform): HTMLElement | null {
@@ -172,8 +275,8 @@ function renderBar() {
     c.mode === "mini" ? button("⤢", "Show the stream", () => expand()) : null,
     c.mode === "full" && ctx.chatEnabled() && !fullscreen ? button("Chat", "Open chat", () => ctx.openChat(c.platform, c.channel)) : null,
     c.mode === "full" ? button(fullscreen ? "Exit full screen" : "Full screen", "Full screen (Esc to leave)", () => void setFullscreen(!fullscreen)) : null,
-    c.mode === "full" && !fullscreen ? button("Open in player", "Watch in your video player instead", () => void toExternal()) : null,
-    button(c.mode === "mini" ? "×" : "Stop", "Stop the stream", () => void stopCurrent(), "player-btn stop"),
+    c.mode === "full" && !fullscreen ? button("Open in player", "Watch in your video player instead", () => toExternal()) : null,
+    button(c.mode === "mini" ? "×" : "Stop", "Stop the stream", () => stopCurrent(), "player-btn stop"),
   ];
   bar.replaceChildren(...items.filter((n): n is Node => n !== null));
 }
@@ -196,18 +299,28 @@ async function setFullscreen(on: boolean) {
   layout();
 }
 
-/** Start playing a stream in StreamHub (replacing the one playing). */
-export async function open(id: number, platform: Platform, channel: string, url: string): Promise<void> {
-  if (current && current.id !== id) {
-    const old = current.id;
-    destroyPlayer();
-    current = null;
-    await ctx.stop(old);
-  }
-  current = { id, platform, channel, url, mode: "full", status: null, player: null, retries: 0 };
-  setNotice("Finding the stream…");
+let nextId = -1;
+
+/** Start playing a stream in StreamHub (replacing the one playing). Returns its id. */
+export function open(platform: Platform, channel: string): number {
+  if (current) close(null);
+  const id = nextId--;
+  current = {
+    id,
+    platform,
+    channel,
+    mode: "full",
+    status: null,
+    hls: null,
+    attempt: 0,
+    last: false,
+    retries: 0,
+    blocking: false,
+    resolving: false,
+  };
   layout();
-  connect();
+  void resolve();
+  return id;
 }
 
 export function minimize(): void {
@@ -224,34 +337,22 @@ export function expand(): void {
   window.scrollTo(0, 0);
 }
 
-export function setStatus(id: number, status: AdblockStatus): void {
-  if (current?.id !== id) return;
-  current.status = status;
-  renderBar();
+export function isPlaying(id: number): boolean {
+  return current?.id === id;
 }
 
-/** The Streamlink session ended (stopped, or the stream went offline). */
-export function ended(id: number, error: string | null): void {
-  if (current?.id !== id) return;
-  destroyPlayer();
-  if (fullscreen) void setFullscreen(false);
-  current = null;
-  video.removeAttribute("src");
-  video.load();
-  setNotice(error ?? "");
-  layout();
+/** Stop the stream in the player. */
+export function stop(id: number): void {
+  if (current?.id === id) close(null);
 }
 
-async function stopCurrent() {
-  if (!current) return;
-  const id = current.id;
-  destroyPlayer();
-  await ctx.stop(id);
+function stopCurrent() {
+  close(null);
 }
 
-async function toExternal() {
+function toExternal() {
   if (!current) return;
   const { platform, channel } = current;
-  await stopCurrent();
+  close(null);
   ctx.openExternal(platform, channel);
 }

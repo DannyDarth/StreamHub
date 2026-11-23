@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.twitch.tv https://id.twitch.tv https://api.github.com http://127.0.0.1:*; media-src 'self' blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://api.twitch.tv https://id.twitch.tv https://api.github.com https:; media-src 'self' blob:; worker-src 'self' blob:; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {

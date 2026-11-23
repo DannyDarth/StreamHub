@@ -376,14 +376,14 @@ async function watch(platform: Platform, channel: string, where: Settings["playI
   state.error = "";
   try {
     const inApp = where === "app" && player.supported();
-    const started = await invoke<{ id: number; url: string | null }>("watch", {
-      platform,
-      channel,
-      settings: { ...state.settings, playInApp: inApp },
-    });
-    const id = started.id;
+    if (inApp) {
+      // StreamHub's player: one stream at a time, so the one playing there closes
+      for (const [oldId, p] of state.playing) if (p.inApp) state.playing.delete(oldId);
+    }
+    const id = inApp
+      ? player.open(platform, channel.toLowerCase())
+      : await invoke<number>("watch", { platform, channel, settings: state.settings });
     state.playing.set(id, { platform, channel, status: null, inApp });
-    if (inApp && started.url) await player.open(id, platform, channel.toLowerCase(), started.url);
     if (state.settings.chatEnabled && state.settings.chatAutoOpen) void openChat(platform, channel);
   } catch (e) {
     state.error = String(e);
@@ -422,7 +422,9 @@ function closeChatOf(platform: Platform, channel: string) {
 async function stop(id: number) {
   const p = state.playing.get(id);
   if (p) closeChatOf(p.platform, p.channel);
-  await invoke("stop", { id });
+  // StreamHub's player has its own ids (below 0); Streamlink sessions are stopped in Rust
+  if (id < 0) player.stop(id);
+  else await invoke("stop", { id });
 }
 
 function updateSettings(patch: Partial<Settings>) {
@@ -606,7 +608,7 @@ function playingBar(): HTMLElement | null {
         "div",
         { class: "playing-item" },
         h("strong", {}, p.channel),
-        statusChip(p.platform, p.status),
+        p.inApp ? h("span", { class: "chip info" }, "In StreamHub") : statusChip(p.platform, p.status),
         p.status && (p.status.adsCovered || p.status.adsGotThrough)
           ? h(
               "span",
@@ -1139,14 +1141,12 @@ void listen<StatusEvent>("adblock-status", ({ payload }) => {
     p.status = payload.status;
     render();
   }
-  player.setStatus(payload.id, payload.status);
 });
 
 void listen<EndedEvent>("stream-ended", ({ payload }) => {
   const p = state.playing.get(payload.id);
   if (p) closeChatOf(p.platform, p.channel);
   state.playing.delete(payload.id);
-  player.ended(payload.id, payload.error);
   if (payload.error) state.error = `${payload.channel}: ${payload.error}`;
   render();
 });
@@ -1164,7 +1164,14 @@ void listen("kick-login-closed", async () => {
 });
 
 player.init({
-  stop: (id) => stop(id),
+  settings: () => state.settings,
+  closed: (id, error) => {
+    const p = state.playing.get(id);
+    if (p) closeChatOf(p.platform, p.channel);
+    state.playing.delete(id);
+    if (error) state.error = `${p?.channel ?? "Stream"}: ${error}`;
+    render();
+  },
   openExternal: (platform, channel) => void watch(platform, channel, "external"),
   chatEnabled: () => state.settings.chatEnabled,
   openChat: (platform, channel) => void openChat(platform, channel),

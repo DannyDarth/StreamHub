@@ -61,7 +61,7 @@ Tests: `cargo test` in `src-tauri/`, and `pytest plugin/tests` with `STREAMHUB_T
 | `src-tauri/src/adblock.rs` | Streamlink log parsing, proxy rotation, badge status |
 | `src-tauri/src/streamlink.rs` | Finding Streamlink and the plugin, launching, auto-switching proxies |
 | `src-tauri/src/kick.rs` | Live status of your Kick channels |
-| `src-tauri/src/in_app.rs`, `src/player.ts` | Play in StreamHub: Streamlink's output served locally to the in-app player (mpegts.js) |
+| `src/player.ts` | Play in StreamHub: Streamlink finds the ad-free stream address (`resolve_stream`), hls.js plays it, ads switch proxies |
 | `src-tauri/src/chat.rs` | Chat panel (a second webview in the main window), browser, Chatterino |
 | `src-tauri/src/auth.rs` | Twitch sign-in through `http://localhost:65432/redirect` |
 | `src-tauri/src/badge.rs` | Badge window, placed on the player window |
