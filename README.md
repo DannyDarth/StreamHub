@@ -1,83 +1,70 @@
-StreamHub
-===
-[![Latest release][badge-release]][Releases] [![Build status][badge-actions]][Github-actions] [![License][badge-license]](LICENSE)
+# StreamHub
 
-**A Windows desktop browser for [Twitch][Twitch] and [Kick][Kick] streams, built on [Streamlink][Streamlink].**
+Ad-free Twitch and Kick streams on Windows, through [Streamlink](https://streamlink.github.io).
 
-StreamHub is a modified version of [Streamlink Twitch GUI][Upstream]. Mainly for personal use, but if anyone wants to improve or add features, you're more than welcome.
+StreamHub 2 is rebuilt with [Tauri 2](https://tauri.app): a Rust core with a light web UI. StreamHub 1.x (NW.js + Ember) is kept on the [`v1` branch](https://github.com/DannyDarth/StreamHub/tree/v1). The iPhone app is [StreamHub-iOS](https://github.com/DannyDarth/StreamHub-iOS).
 
-<img width="903" height="599" alt="StreamHub screenshot" src="https://github.com/user-attachments/assets/5561e81b-d98c-423c-942b-fac619c7ecdc" />
+## Install
 
-The iPhone app's source is in the [`ios/`](ios) folder. Its installable builds are published from [StreamHub-iOS][iOS].
+Download **StreamHub_…_x64-setup.exe** (installer) or **StreamHub-…-Windows-x64-portable.zip** from the [latest release](https://github.com/DannyDarth/StreamHub/releases/latest). You also need [Streamlink](https://streamlink.github.io/install.html) 8.3 or newer and a video player (VLC by default).
 
+The installer isn't code-signed yet, so Windows SmartScreen may warn about it: choose **More info → Run anyway**.
 
-## ℹ️ Description
+StreamHub 2 keeps its own settings: sign in to Twitch (and Kick) again after upgrading from 1.x.
 
-A graphical user interface on top of the [Streamlink][Streamlink] command line interface. Streams play in the video player of your choice instead of the browser, which keeps playback smooth and light on CPU and battery.
+## Hard rule: ads must not interrupt streams
 
-StreamHub is an [NW.js][NW.js] application written in JavaScript ([EmberJS][EmberJS]), HTML ([Handlebars][Handlebars]) and CSS ([LessCSS][LessCSS]).
+- Twitch streams play through ad-free playlist proxies, using the bundled [streamlink-ttvlol](https://github.com/2bc4/streamlink-ttvlol) plugin (pinned and checksum-verified) with StreamHub's patch.
+- If an ad gets through, StreamHub restarts Streamlink with the next proxy tried first. Each proxy is tried first once.
+- **StreamHub never falls back to Twitch with ads by itself.** Playing directly from Twitch only happens if you turn on **Direct through my VPN**. If the plugin is missing, StreamHub refuses to play instead.
+- **Ad-free backup stream** (optional, off by default): during an ad break, plays a lower-quality ad-free stream instead of pausing.
+- The ad blocking badge shows the status in the corner of the player window.
 
+## Features
 
-## 👍 Features
+- Twitch sign-in (same Twitch app and redirect as StreamHub 1.x)
+- Followed channels that are live, with live notifications
+- Kick: sign in on kick.com from Settings → Kick (in a StreamHub window; StreamHub never sees your password) to show every channel you follow, plus any channels you add yourself; checked every minute, with live notifications; watch through Streamlink
+- Watching through Streamlink, with the ad blocking above and a status bar per stream
+- Chat (optional, off by default: Settings → Chat) for Twitch and Kick: in a panel on the right of StreamHub (the sites' own popout chat; sign in there to send messages), your default browser, or Chatterino; optionally opened with the stream
+- Browse and search: top categories and live streams, category pages and channel pages for Twitch and Kick (Kick has no channel search: StreamHub looks up the exact name)
+- Settings: theme (dark, light, same as Windows), smoother playback (more buffering), browse language filter, Streamlink path, player, quality, low latency, proxies, VPN mode, backup stream, badge
+- Tray icon (closing the window keeps StreamHub running)
 
-* Twitch and Kick: browse, follow and watch streams from both
-* Watch streams in the video player of your choice via Streamlink
-* Watch multiple streams at once
-* Browse streams by popularity, game, channel or team
-* Access your followed streams and channels
-* Filter streams by channel or broadcasting language
-* Desktop notifications when new streams start
-* Join the chat using customizable chat applications
-* Rich settings with lots of customizations and presets, plus per-channel settings
-* Multiple languages, light and dark themes, customizable hotkeys
-* Command line parameters for automation
+Not yet in StreamHub 2: videos and clips (StreamHub 1.x has them).
 
+Kick doesn't put ads into the streams Streamlink plays, so Kick streams don't need the proxy plugin. If Kick starts doing that, StreamHub will need its own Kick ad blocking.
 
-## 📦 Download
+## Test builds
 
-StreamHub desktop is Windows-only. Get the installer from the [Releases][Releases] page. StreamHub checks that page for updates.
+Every push builds an installer and a portable build: open the latest successful run of [Build](../../actions/workflows/build.yml) and download **StreamHub-Windows-x64-portable** (unzip, run `StreamHub.exe`, keep `streamlink-plugins` next to it) or **StreamHub-Windows-x64-installer**.
 
-StreamHub is a graphical interface for **Streamlink**, so [Streamlink][Streamlink] has to be installed for streams to launch.
+## Development
 
+Needs Node 24, Rust stable and Python 3.
 
-## 🔨 Build
-
-On Windows, install [Git][Git], [Node.js][Node.js] (20 or newer) and [Yarn][yarn], then:
-
-```bash
-git clone https://github.com/DannyDarth/StreamHub.git
-cd StreamHub
-yarn install
-yarn run grunt release
+```sh
+npm install
+npm run plugin        # builds src-tauri/resources/streamlink-plugins
+npm run tauri dev
 ```
 
-The built application ends up in `build/releases`. Run the tests with `yarn run grunt test`. See [CONTRIBUTING.md](CONTRIBUTING.md) for more detail.
+Tests: `cargo test` in `src-tauri/`, and `pytest plugin/tests` with `STREAMHUB_TWITCH_PLUGIN` set to the built `twitch.py`.
 
+## Layout
 
-## 🙏 Credits
-
-StreamHub is built on [Streamlink Twitch GUI][Upstream] by Sebastian Meyer ([@bastimeyer](https://github.com/bastimeyer)). If you'd like to support the original project, he accepts [GitHub Sponsors](https://github.com/users/bastimeyer/sponsorship) and [PayPal](https://paypal.me/bastimeyer123).
-
+| Path | What |
+| --- | --- |
+| `src/` | UI (TypeScript, no framework): `main.ts`, browse/search/channel pages `browse.ts`, the badge window `badge.ts` |
+| `src-tauri/src/adblock.rs` | Streamlink log parsing, proxy rotation, badge status |
+| `src-tauri/src/streamlink.rs` | Finding Streamlink and the plugin, launching, auto-switching proxies |
+| `src-tauri/src/kick.rs` | Live status of your Kick channels |
+| `src-tauri/src/chat.rs` | Chat panel (a second webview in the main window), browser, Chatterino |
+| `src-tauri/src/auth.rs` | Twitch sign-in through `http://localhost:65432/redirect` |
+| `src-tauri/src/badge.rs` | Badge window, placed on the player window |
+| `plugin/` | Builds and tests the patched streamlink-ttvlol plugin |
+| `ios/` | The earlier iOS app sources (the iOS app now lives in [StreamHub-iOS](https://github.com/DannyDarth/StreamHub-iOS)) |
 
 ## License
 
-StreamHub is released under the [MIT License](LICENSE). It is based on Streamlink Twitch GUI by Sebastian Meyer, also MIT-licensed; the original copyright notice is kept in [LICENSE](LICENSE).
-
-
-  [Releases]: https://github.com/DannyDarth/StreamHub/releases "StreamHub releases"
-  [Github-actions]: https://github.com/DannyDarth/StreamHub/actions/workflows/main.yml "Build status"
-  [iOS]: https://github.com/DannyDarth/StreamHub-iOS "StreamHub-iOS"
-  [Upstream]: https://github.com/streamlink/streamlink-twitch-gui "Streamlink Twitch GUI"
-  [Streamlink]: https://streamlink.github.io/ "Streamlink"
-  [Twitch]: https://twitch.tv "Twitch"
-  [Kick]: https://kick.com "Kick"
-  [NW.js]: https://github.com/nwjs/nw.js "NW.js"
-  [EmberJS]: https://emberjs.com/ "EmberJS"
-  [Handlebars]: https://handlebarsjs.com/ "Handlebars.js"
-  [LessCSS]: https://lesscss.org/ "LessCSS"
-  [Git]: https://git-scm.com "Git"
-  [Node.js]: https://nodejs.org "Node.js"
-  [yarn]: https://classic.yarnpkg.com/lang/en/ "Yarn"
-  [badge-release]: https://img.shields.io/github/v/release/DannyDarth/StreamHub?style=flat-square "Latest release"
-  [badge-actions]: https://img.shields.io/github/actions/workflow/status/DannyDarth/StreamHub/main.yml?branch=master&event=push&style=flat-square "Build status"
-  [badge-license]: https://img.shields.io/github/license/DannyDarth/StreamHub?style=flat-square "License"
+MIT, see [LICENSE](LICENSE). The bundled streamlink-ttvlol plugin is BSD-2-Clause (`plugin/LICENSE-streamlink-ttvlol.txt`).
