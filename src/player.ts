@@ -110,9 +110,12 @@ function connect() {
     {
       enableWorker: false,
       lazyLoad: false,
-      liveBufferLatencyChasing: true,
-      liveBufferLatencyMaxLatency: 8,
-      liveBufferLatencyMinRemain: 2,
+      // Don't jump ahead to catch up with live: the jumps land between keyframes, which showed
+      // as blocky, smeared video. Streamlink already starts close to live.
+      liveBufferLatencyChasing: false,
+      liveSync: false,
+      // a bigger first chunk so playback starts on whole frames
+      stashInitialSize: 1024 * 1024,
     },
   );
   session.player = player;
