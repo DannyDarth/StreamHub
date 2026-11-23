@@ -23,6 +23,7 @@ export const DEFAULTS: Settings = {
   theme: "dark",
   buffer: "normal",
   streamLanguage: "",
+  checkUpdates: true,
 };
 
 /** Languages for the browse pages' filter. */

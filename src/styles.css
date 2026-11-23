@@ -368,3 +368,5 @@ body.with-chat .banner, body.with-chat .playing { margin-right: calc(340px + 20p
   font-weight: 700;
 }
 .kick-signin:hover { filter: brightness(1.1); }
+.banner.update { display: flex; align-items: center; gap: 12px; border-color: var(--accent); }
+.banner.update .primary-small { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }

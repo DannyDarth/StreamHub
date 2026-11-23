@@ -50,6 +50,8 @@ export interface Settings {
   buffer: "normal" | "more" | "most";
   /** Browse pages: only streams in this language ("" = all). */
   streamLanguage: string;
+  /** Look for a new StreamHub version on GitHub. */
+  checkUpdates: boolean;
 }
 
 export type ChatProvider = "panel" | "browser" | "chatterino";
