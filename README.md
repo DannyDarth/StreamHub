@@ -37,6 +37,10 @@ Not yet in StreamHub 2: videos and clips (StreamHub 1.x has them).
 
 Kick doesn't put ads into the streams Streamlink plays, so Kick streams don't need the proxy plugin. If Kick starts doing that, StreamHub will need its own Kick ad blocking.
 
+## Releases
+
+To release a new version, raise `version` in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`, and write `release-notes.md` (it must mention `v<version>`). The first build of `master` with the new version publishes release **StreamHub Windows v<version>** with the installer and portable zip of that tested build.
+
 ## Test builds
 
 Every push builds an installer and a portable build: open the latest successful run of [Build](../../actions/workflows/build.yml) and download **StreamHub-Windows-x64-portable** (unzip, run `StreamHub.exe`, keep `streamlink-plugins` next to it) or **StreamHub-Windows-x64-installer**.
