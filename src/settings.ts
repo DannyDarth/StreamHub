@@ -24,6 +24,7 @@ export const DEFAULTS: Settings = {
   buffer: "normal",
   streamLanguage: "",
   checkUpdates: true,
+  autoUpdate: true,
   playIn: "external",
 };
 
