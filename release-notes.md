@@ -1,18 +1,13 @@
-# StreamHub Windows v2.0.1
+# StreamHub Windows v2.0.2
 
 ## New
-- **Play in StreamHub (beta)**: watch streams inside StreamHub instead of VLC. Turn it on in Settings → Streamlink → Play streams in. Same rule as always: ads must not interrupt streams. On Twitch, an ad switches to the next ad-free server before it plays; with none left, the ad is hidden and muted.
-  - **Back** keeps the stream playing in a mini-player in the corner while you browse; click it to bring it back
-  - Quality menu, chat, full screen (Esc to leave), Open in player, Stop
-  - Streams start in about a second
-- **Update check**: StreamHub tells you when a new version is out (notification and banner with Download). Settings → Updates to turn it off or check now.
-
-## Improved
-- StreamHub opens maximized
-- Kick channels show faster at start-up: your last results show at once, the sign-in check and channel lists load together
+- **Automatic updates**: from this version on, StreamHub downloads new versions in the background, checks the installer against the release's SHA256SUMS.txt, and installs it when you restart or quit StreamHub ("Restart to update" in the banner). No SmartScreen warning for these updates. Turn it off in Settings → Updates → Install updates automatically. The portable build keeps the Download banner.
 
 ## Install
-- **StreamHub_2.0.1_x64-setup.exe**: installer (installs over 2.0.0, settings are kept)
-- **StreamHub-2.0.1-Windows-x64-portable.zip**: unzip and run StreamHub.exe (keep the streamlink-plugins folder next to it)
+This is the last version to install by hand if you're on 2.0.0 or 2.0.1:
+- **StreamHub_2.0.2_x64-setup.exe**: installer (installs over 2.0.x, settings are kept)
+- **StreamHub-2.0.2-Windows-x64-portable.zip**: unzip and run StreamHub.exe (keep the streamlink-plugins folder next to it)
 
 Needs [Streamlink](https://streamlink.github.io/install.html) 8.3 or newer (and a video player such as VLC unless you use Play in StreamHub). The installer isn't code-signed yet: if Windows SmartScreen warns, choose More info → Run anyway.
+
+Everything from 2.0.1 is included: Play in StreamHub (beta) with the mini-player and quality menu, the update check, opening maximized and faster Kick loading.
