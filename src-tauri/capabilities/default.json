@@ -5,6 +5,7 @@
   "windows": ["main", "badge"],
   "permissions": [
     "core:default",
-    "notification:default"
+    "notification:default",
+    "core:window:allow-set-fullscreen"
   ]
 }

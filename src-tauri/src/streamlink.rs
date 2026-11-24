@@ -49,6 +49,9 @@ pub struct WatchSettings {
     /// "normal", "more" or "most": how many seconds of video Streamlink keeps buffered.
     #[serde(default)]
     pub buffer: Option<String>,
+    /// "Play in StreamHub": the stream goes to StreamHub's own player instead of an external one.
+    #[serde(default)]
+    pub play_in_app: bool,
 }
 
 /// Streamlink's buffering options for the "Smoother playback" setting. More buffer means fewer
@@ -256,12 +259,17 @@ pub fn build_args(
     rotation: &ProxyRotation,
 ) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec!["--loglevel".into(), "info".into()];
-    if let Some(player) = settings.player_path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        args.push("--player".into());
-        args.push(player.into());
+    if settings.play_in_app {
+        // StreamHub's own player plays the stream: Streamlink only finds its (ad-free) address
+        args.push("--stream-url".into());
+    } else {
+        if let Some(player) = settings.player_path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            args.push("--player".into());
+            args.push(player.into());
+        }
+        args.push("--title".into());
+        args.push(format!("{channel} - StreamHub").into());
     }
-    args.push("--title".into());
-    args.push(format!("{channel} - StreamHub").into());
     let low_latency = platform == Platform::Twitch && settings.low_latency;
     if low_latency {
         args.push("--twitch-low-latency".into());
@@ -446,7 +454,7 @@ impl Runner {
     }
 }
 
-/// Start watching a Twitch channel. Returns the stream's id.
+/// Start watching a channel in the external player. Returns the stream's id.
 #[tauri::command]
 pub fn watch(
     app: AppHandle,
@@ -483,9 +491,176 @@ pub fn watch(
     let session = Arc::new(Session::default());
     streams.sessions.lock().unwrap().insert(id, session.clone());
 
+    if settings.play_in_app {
+        return Err("Use resolve_stream for StreamHub's own player".into());
+    }
     let runner = Runner { app, platform, id, channel, settings, exe, plugin, session };
     std::thread::spawn(move || runner.run());
     Ok(id)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedStream {
+    /// The stream's HLS playlist: through an ad-free proxy for Twitch.
+    url: String,
+    /// The proxy server used (Twitch).
+    server: Option<String>,
+    /// True when there's no other proxy to try after this one.
+    last: bool,
+    /// True when Twitch is played directly (no proxy worked and "Direct through my VPN" is on).
+    direct: bool,
+    /// Index in the proxy list of the server used: after an ad, StreamHub asks again from the next.
+    index: usize,
+    /// The qualities the player can switch between (empty when unknown).
+    qualities: Vec<crate::fastplay::Quality>,
+}
+
+fn first_url(lines: &[String]) -> Option<String> {
+    lines
+        .iter()
+        .map(|l| l.trim())
+        .find(|l| l.starts_with("https://") || l.starts_with("http://"))
+        .map(str::to_string)
+}
+
+/// Play in StreamHub: find the stream's (ad-free) playlist address with Streamlink, without
+/// starting a player. `attempt` picks the proxy tried first (0 = the first in the list): after
+/// an ad, StreamHub's player asks again with the next one.
+#[tauri::command]
+pub async fn resolve_stream(
+    app: AppHandle,
+    platform: Platform,
+    channel: String,
+    mut settings: WatchSettings,
+    attempt: usize,
+) -> Result<ResolvedStream, String> {
+    let channel = channel.to_ascii_lowercase();
+    let valid = match platform {
+        Platform::Twitch => valid_channel(&channel),
+        Platform::Kick => valid_kick_slug(&channel),
+    };
+    if !valid {
+        return Err("Invalid channel name".into());
+    }
+    if !valid_quality(&settings.quality) {
+        return Err("Invalid stream quality".into());
+    }
+    settings.play_in_app = true;
+
+    // Fast start: find the address directly (about a second); Streamlink below is the fallback.
+    match platform {
+        Platform::Kick => match crate::kick::playback(&app, &channel).await {
+            Ok(master) => {
+                let (url, qualities) = crate::fastplay::from_master(&master, &settings.quality)
+                    .await
+                    .unwrap_or_else(|_| (master.clone(), Vec::new()));
+                return Ok(ResolvedStream {
+                    url: crate::fastplay::proxied(&url),
+                    server: None,
+                    last: true,
+                    direct: false,
+                    index: 0,
+                    qualities,
+                });
+            }
+            Err(e) if e == "offline" => return Err("This channel isn't live.".into()),
+            Err(_) => {}
+        },
+        Platform::Twitch if settings.proxy_enabled && find_plugin(&app).is_some() => {
+            match crate::fastplay::twitch(&channel, &settings.quality, &settings.proxies, attempt, settings.direct).await {
+                Ok(found) => {
+                    return Ok(ResolvedStream {
+                        url: crate::fastplay::proxied(&found.url),
+                        qualities: found.qualities,
+                        server: found.server,
+                        last: found.last,
+                        direct: found.direct,
+                        index: found.index,
+                    })
+                }
+                Err(e) if e == "offline" => return Err("This channel isn't live.".into()),
+                Err(e) if e == "no-ad-free" => {
+                    return Err("No ad-free stream is available right now: every proxy failed or served ads. \
+                                StreamHub won't play the stream with ads."
+                        .into())
+                }
+                Err(_) => {}
+            }
+        }
+        Platform::Twitch => {}
+    }
+
+    let exe = find_streamlink(settings.streamlink_path.as_deref()).ok_or(
+        "Streamlink wasn't found. Install it from streamlink.github.io or set its path in Settings.",
+    )?;
+    let plugin = if platform == Platform::Twitch && settings.proxy_enabled {
+        Some(find_plugin(&app).ok_or(
+            "The ad blocking plugin is missing, so StreamHub won't play this stream (it would have ads). \
+             Reinstall StreamHub or install streamlink-ttvlol.",
+        )?)
+    } else {
+        None
+    };
+    let mut rotation = ProxyRotation::new(if settings.proxies.is_empty() {
+        adblock::DEFAULT_PROXIES.iter().map(|s| s.to_string()).collect()
+    } else {
+        settings.proxies.clone()
+    });
+    for _ in 0..attempt {
+        if !rotation.switch() {
+            return Err("No ad-free stream is available right now: every proxy has been tried. \
+                        StreamHub won't play the stream with ads."
+                .into());
+        }
+    }
+    let args = build_args(platform, &channel, &settings, plugin.as_ref(), &rotation);
+
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        let mut command = Command::new(&exe);
+        command.args(args).stdin(Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        command.output()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("Couldn't start Streamlink: {e}"))?;
+
+    let lines: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .chain(String::from_utf8_lossy(&output.stderr).lines())
+        .map(str::to_string)
+        .collect();
+    let mut tracker = Tracker::default();
+    let mut error: Option<String> = None;
+    for line in &lines {
+        let message = adblock::strip_log_prefix(line);
+        if let Some(cli_error) = message.strip_prefix("error:") {
+            error = Some(cli_error.trim().to_string());
+        }
+        if let Some(event) = adblock::parse_event(line) {
+            tracker.record(&event);
+        }
+    }
+    let ad_free_only = plugin.is_some() && !settings.direct;
+    match first_url(&lines) {
+        Some(url) if output.status.success() => {
+            let mut next = rotation.clone();
+            Ok(ResolvedStream {
+                url: crate::fastplay::proxied(&url),
+                server: tracker.server,
+                last: !next.switch(),
+                direct: tracker.direct,
+                index: attempt,
+                qualities: Vec::new(),
+            })
+        }
+        _ => Err(explain_error(error.as_deref().unwrap_or("Streamlink couldn't find the stream"), ad_free_only)),
+    }
 }
 
 /// Stop a stream started with `watch`.
@@ -550,6 +725,17 @@ mod tests {
         s.buffer = Some("most".into());
         let args = strings(build_args(Platform::Kick, "x", &s, None, &ProxyRotation::new(vec![])));
         assert!(args.windows(2).any(|w| w == ["--hls-live-edge", "10"]));
+    }
+
+    #[test]
+    fn in_app_args() {
+        let mut s = settings();
+        s.play_in_app = true;
+        s.player_path = Some("vlc.exe".into());
+        let args = strings(build_args(Platform::Kick, "x", &s, None, &ProxyRotation::new(vec![])));
+        assert_eq!(args, ["--loglevel", "info", "--stream-url", "https://kick.com/x", "best"]);
+        let lines = vec!["[plugins.twitch][info] Using playlist proxy 'https://a/'".to_string(), "https://cdn/x.m3u8".to_string()];
+        assert_eq!(first_url(&lines).as_deref(), Some("https://cdn/x.m3u8"));
     }
 
     #[test]

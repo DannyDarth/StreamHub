@@ -465,6 +465,30 @@ pub async fn kick_logout(app: AppHandle) -> Result<(), String> {
     items(&run_in_kick(&app, body).await?).map(|_| ())
 }
 
+/// A live channel's HLS address (for "Play in StreamHub").
+const PLAYBACK: &str = r#"
+  const res = await fetch(`/api/v2/channels/${encodeURIComponent(__SLUG__)}`, { headers: { Accept: "application/json" } });
+  if (!res.ok) return { status: res.status };
+  const d = await res.json();
+  const url = d.playback_url || (d.livestream && d.livestream.playback_url) || "";
+  if (!d.livestream || !url) return { status: 404 };
+  return { status: 200, items: url };
+"#;
+
+/// The HLS address of a live Kick channel.
+pub async fn playback(app: &AppHandle, slug: &str) -> Result<String, String> {
+    if !valid_kick_slug(slug) {
+        return Err("Invalid channel name".into());
+    }
+    let body = PLAYBACK.replace("__SLUG__", &serde_json::to_string(slug).unwrap());
+    match items(&run_in_kick(app, &body).await?) {
+        Ok(Value::String(url)) if url.starts_with("https://") => Ok(url),
+        Ok(_) => Err("offline".into()),
+        Err(e) if e == "Kick returned 404" => Err("offline".into()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Browse Kick: "categories", or "streams" (live streams, of one category when `slug` is given).
 #[tauri::command]
 pub async fn kick_browse(

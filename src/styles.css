@@ -370,3 +370,71 @@ body.with-chat .banner, body.with-chat .playing { margin-right: calc(340px + 20p
 .kick-signin:hover { filter: brightness(1.1); }
 .banner.update { display: flex; align-items: center; gap: 12px; border-color: var(--accent); }
 .banner.update .primary-small { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+/* In-app player ("Play in StreamHub") */
+#player-host { display: none; }
+#player-host.full, #player-host.mini { display: flex; flex-direction: column; position: fixed; z-index: 6; background: #000; }
+#player-host.full { top: 52px; left: 0; right: 0; bottom: 0; }
+body.with-chat #player-host.full { right: 340px; }
+#player-host.fullscreen { top: 0; right: 0; }
+#player-host.mini {
+  right: 16px;
+  bottom: 16px;
+  width: 380px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+body.with-chat #player-host.mini { right: 356px; }
+.player-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+#player-host.mini .player-bar { padding: 4px 8px; }
+#player-host.fullscreen .player-bar { position: absolute; top: 0; left: 0; right: 0; z-index: 2; opacity: 0; transition: opacity 0.2s; }
+#player-host.fullscreen:hover .player-bar { opacity: 1; }
+.player-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player-spacer { flex: 1; }
+.player-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  white-space: nowrap;
+}
+.player-btn:hover { border-color: var(--accent); }
+.player-btn.stop:hover { border-color: var(--error); }
+.player-stage { position: relative; flex: 1; min-height: 0; display: flex; }
+.player-video { width: 100%; height: 100%; background: #000; display: block; }
+#player-host.mini .player-video { aspect-ratio: 16 / 9; height: auto; cursor: pointer; }
+.player-notice {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 15px;
+  pointer-events: none;
+  text-shadow: 0 1px 3px #000;
+}
+.player-notice.visible { display: flex; }
+/* while the player fills the window, the page behind it doesn't scroll */
+body.player-full { overflow: hidden; }
+/* an ad that got through with no proxy left: hidden and muted */
+#player-host.blocking .player-video { opacity: 0; }
+.player-quality {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+#player-host.mini .player-quality { padding: 2px 4px; font-size: 12px; }

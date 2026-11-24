@@ -2,6 +2,7 @@ mod adblock;
 mod auth;
 mod badge;
 mod chat;
+mod fastplay;
 mod kick;
 mod streamlink;
 
@@ -31,11 +32,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        // the in-app player's playlists and video come through StreamHub (see fastplay.rs)
+        .register_asynchronous_uri_scheme_protocol("stream", |_ctx, request, responder| {
+            tauri::async_runtime::spawn(async move { responder.respond(fastplay::proxy(request).await) });
+        })
         .manage(streamlink::Streams::default())
         .manage(kick::KickFetcher::default())
         .invoke_handler(tauri::generate_handler![
             auth::twitch_login,
             streamlink::watch,
+            streamlink::resolve_stream,
             streamlink::stop,
             streamlink::streamlink_info,
             badge::badge_hide,
