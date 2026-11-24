@@ -70,6 +70,9 @@ const state = {
   kickKnown: null as Set<string> | null,
   search: "",
   update: null as Update | null,
+  /** The version downloaded and waiting to install. */
+  updateReady: "",
+  updateDownloading: "",
   appVersion: "",
   kickAccount: null as KickAccount | null,
   kickFollowed: [] as KickFollowed[],
@@ -975,6 +978,11 @@ function settingsView(): HTMLElement {
 
     h("h2", {}, "Updates"),
     checkbox("Check for updates", "Look for a new StreamHub version on GitHub when StreamHub starts and every few hours.", "checkUpdates"),
+    checkbox(
+      "Install updates automatically",
+      "Download new versions in the background and install them when StreamHub restarts or you quit it. Not for the portable build.",
+      "autoUpdate",
+    ),
     h(
       "p",
       {},
@@ -1030,6 +1038,25 @@ const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
 
 function updateBanner(): HTMLElement | null {
   const u = state.update;
+  if (u && state.updateReady === u.version) {
+    return h(
+      "div",
+      { class: "banner update" },
+      h("span", {}, h("strong", {}, `StreamHub ${u.version} is ready`), ". It installs when you quit StreamHub, or now:"),
+      h(
+        "button",
+        {
+          class: "small primary-small",
+          onclick: () =>
+            void invoke("restart_to_update").catch((e) => {
+              state.error = String(e);
+              render();
+            }),
+        },
+        "Restart to update",
+      ),
+    );
+  }
   if (!u || localStorage.getItem(DISMISSED_KEY) === u.version) return null;
   return h(
     "div",
@@ -1061,6 +1088,9 @@ async function checkUpdates(manual = false) {
     const update = await checkForUpdate(state.appVersion);
     const isNew = update && update.version !== state.update?.version;
     state.update = update;
+    if (update && state.settings.autoUpdate && !state.updateReady && state.updateDownloading !== update.version) {
+      void autoUpdate(update.version);
+    }
     if (manual && !update) state.message = `StreamHub ${state.appVersion} is the newest version.`;
     if (manual && update) localStorage.removeItem(DISMISSED_KEY);
     if (isNew && localStorage.getItem(DISMISSED_KEY) !== update.version) {
@@ -1072,6 +1102,25 @@ async function checkUpdates(manual = false) {
     if (manual) state.error = `Couldn't check for updates: ${String(e)}`;
   }
   render();
+}
+
+let updateSupported: boolean | null = null;
+
+/** Download the new version in the background (installed copies only). */
+async function autoUpdate(version: string) {
+  updateSupported ??= await invoke<boolean>("update_supported").catch(() => false);
+  if (!updateSupported) return;
+  state.updateDownloading = version;
+  try {
+    await invoke("download_update", { version });
+    state.updateReady = version;
+  } catch (e) {
+    // the "Download" banner stays as the way to update
+    console.warn("Automatic update failed:", e);
+  } finally {
+    state.updateDownloading = "";
+    render();
+  }
 }
 
 /** Put the section's sub-navigation on top of a page. */

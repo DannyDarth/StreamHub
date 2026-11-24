@@ -24,6 +24,7 @@ serde_json = "1"
 tokio = { version = "1", features = ["sync", "time", "rt"] }
 reqwest = { version = "0.12", features = ["json"] }
 url = "2"
+sha2 = "0.10"
 
 [profile.release]
 codegen-units = 1

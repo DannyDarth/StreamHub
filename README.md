@@ -29,7 +29,7 @@ StreamHub 2 keeps its own settings: sign in to Twitch (and Kick) again after upg
 - Chat (optional, off by default: Settings → Chat) for Twitch and Kick: in a panel on the right of StreamHub (the sites' own popout chat; sign in there to send messages), your default browser, or Chatterino; optionally opened with the stream
 - Browse and search: top categories and live streams, category pages and channel pages for Twitch and Kick (Kick has no channel search: StreamHub looks up the exact name)
 - Play in StreamHub (beta, Settings → Streamlink → Play streams in): streams play inside StreamHub with the same ad blocking; Back keeps the stream playing in a mini-player while you browse
-- Update check: tells you when a new StreamHub version is out (Settings → Updates)
+- Updates: StreamHub downloads new versions and installs them when it restarts or you quit it, after checking the installer against the release's SHA256SUMS.txt (Settings → Updates; the portable build shows a Download banner instead)
 - Settings: theme (dark, light, same as Windows), smoother playback (more buffering), browse language filter, Streamlink path, player, quality, low latency, proxies, VPN mode, backup stream, badge
 - Tray icon (closing the window keeps StreamHub running)
 

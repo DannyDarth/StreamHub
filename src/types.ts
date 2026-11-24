@@ -52,6 +52,8 @@ export interface Settings {
   streamLanguage: string;
   /** Look for a new StreamHub version on GitHub. */
   checkUpdates: boolean;
+  /** Download new versions and install them when StreamHub restarts or quits. */
+  autoUpdate: boolean;
   /** Where streams play: the user's video player, or StreamHub's own player. */
   playIn: "external" | "app";
 }

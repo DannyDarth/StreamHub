@@ -5,6 +5,7 @@ mod chat;
 mod fastplay;
 mod kick;
 mod streamlink;
+mod updater;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -37,6 +38,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move { responder.respond(fastplay::proxy(request).await) });
         })
         .manage(streamlink::Streams::default())
+        .manage(updater::Update::default())
         .manage(kick::KickFetcher::default())
         .invoke_handler(tauri::generate_handler![
             auth::twitch_login,
@@ -54,6 +56,9 @@ pub fn run() {
             chat::open_chat,
             chat::close_chat,
             open_release_page,
+            updater::update_supported,
+            updater::download_update,
+            updater::restart_to_update,
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Show StreamHub", true, None::<&str>)?;
@@ -68,6 +73,8 @@ pub fn run() {
                     "show" => show_main(app),
                     "quit" => {
                         app.state::<streamlink::Streams>().stop_all();
+                        // a downloaded update installs now (StreamHub starts again after it)
+                        updater::apply(app);
                         app.exit(0);
                     }
                     _ => {}
