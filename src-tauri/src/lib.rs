@@ -107,6 +107,15 @@ pub fn run() {
                 match event {
                     WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
+                        let app = window.app_handle();
+                        if updater::is_ready(app) {
+                            // an update is waiting: closing the window installs it
+                            app.state::<streamlink::Streams>().stop_all();
+                            if updater::apply(app) {
+                                app.exit(0);
+                                return;
+                            }
+                        }
                         let _ = window.hide();
                     }
                     WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {

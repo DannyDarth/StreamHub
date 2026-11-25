@@ -138,22 +138,52 @@ fn run_installer(installer: &Path, exe: &Path) -> std::io::Result<()> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const DETACHED_PROCESS: u32 = 0x0000_0008;
-    // single quotes for PowerShell; paths can't contain them here (temp dir, install dir)
+    // keep running after StreamHub exits, even if StreamHub was started inside a job object
+    // (e.g. by an installer) that ends its processes with it
+    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+    let quote = |p: &Path| p.display().to_string().replace('\'', "''");
+    let log = installer.with_file_name("update.log");
+    // waits for StreamHub to close, runs the installer (progress only), starts StreamHub again;
+    // every step goes to update.log next to the installer
     let script = format!(
-        "Start-Sleep -Seconds 2; Start-Process -FilePath '{}' -ArgumentList '/P' -Wait; Start-Process -FilePath '{}'",
-        installer.display().to_string().replace('\'', "''"),
-        exe.display().to_string().replace('\'', "''"),
+        "$log = '{log}'; \
+         function Log($m) {{ Add-Content -Path $log -Value ((Get-Date -Format s) + ' ' + $m) }}; \
+         try {{ \
+           Log 'Waiting for StreamHub to close'; \
+           Wait-Process -Id {pid} -Timeout 30 -ErrorAction SilentlyContinue; \
+           Start-Sleep -Seconds 1; \
+           Log 'Running {name}'; \
+           $p = Start-Process -FilePath '{installer}' -ArgumentList '/P' -PassThru -Wait; \
+           Log ('Installer finished with exit code ' + $p.ExitCode); \
+           Start-Process -FilePath '{exe}'; \
+           Log 'Started StreamHub' \
+         }} catch {{ Log ('Failed: ' + $_) }}",
+        log = quote(&log),
+        pid = std::process::id(),
+        name = installer.file_name().and_then(|n| n.to_str()).unwrap_or("installer"),
+        installer = quote(installer),
+        exe = quote(exe),
     );
-    std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
-        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
-        .spawn()
-        .map(|_| ())
+    let spawn = |flags: u32| {
+        std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .creation_flags(flags)
+            .spawn()
+            .map(|_| ())
+    };
+    // breaking away from a job is refused when the job doesn't allow it: then start it normally
+    spawn(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB)
+        .or_else(|_| spawn(CREATE_NO_WINDOW | DETACHED_PROCESS))
 }
 
 #[cfg(not(windows))]
 fn run_installer(_installer: &Path, _exe: &Path) -> std::io::Result<()> {
     Err(std::io::Error::other("automatic updates are for Windows"))
+}
+
+/// Is a downloaded update waiting to be installed?
+pub fn is_ready(app: &AppHandle) -> bool {
+    app.state::<Update>().ready.lock().unwrap().is_some()
 }
 
 /// "Restart to update": quit StreamHub and install the update.
