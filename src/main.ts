@@ -1062,7 +1062,7 @@ function updateBanner(): HTMLElement | null {
     return h(
       "div",
       { class: "banner update" },
-      h("span", {}, h("strong", {}, `StreamHub ${u.version} is ready`), ". It installs when you quit StreamHub, or now:"),
+      h("span", {}, h("strong", {}, `StreamHub ${u.version} is ready`), ". It installs when you close StreamHub, or now:"),
       h(
         "button",
         {
