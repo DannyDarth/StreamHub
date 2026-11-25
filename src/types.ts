@@ -149,6 +149,7 @@ export interface KickFollowed {
   title: string;
   category: string;
   avatar: string | null;
+  thumbnail?: string | null;
 }
 
 export interface KickAccount {

@@ -245,6 +245,35 @@ function mergeKickChannels(fresh: KickChannel[]) {
   state.kickChannels = [...bySlug.values()].filter((c) => wanted.has(c.slug));
 }
 
+/**
+ * Load the followed channels page by page, showing each page as it arrives (live channels come
+ * first). Live ones without a picture get their details fetched right away, into `details`.
+ */
+async function loadFollowed(details: Promise<void>[]) {
+  const before = state.kickFollowed;
+  const loaded: KickFollowed[] = [];
+  const addedSet = new Set(state.kickSlugs);
+  let cursor: unknown = 0;
+  try {
+    for (let page = 0; page < 40 && cursor !== null && cursor !== undefined; page++) {
+      const r = await invoke<{ channels: KickFollowed[]; next: unknown }>("kick_followed", { cursor });
+      kickSignedOut = false;
+      loaded.push(...r.channels);
+      const seen = new Set(loaded.map((f) => f.slug));
+      // while loading, keep the earlier list's other channels so nothing blinks out
+      state.kickFollowed = [...loaded, ...before.filter((f) => !seen.has(f.slug))];
+      render();
+      const need = r.channels.filter((f) => f.live && !f.thumbnail && !addedSet.has(f.slug)).map((f) => f.slug);
+      if (need.length) details.push(checkKickChannels(need).then((c) => mergeKickChannels(c)).then(() => render()));
+      cursor = r.next;
+    }
+    state.kickFollowed = loaded;
+  } catch (e) {
+    if (String(e) === "not-signed-in") kickNotSignedIn();
+    else state.kickError = `Couldn't load the Kick channels you follow: ${String(e)}`;
+  }
+}
+
 let kickRefreshing: Promise<void> | null = null;
 
 function refreshKick(): Promise<void> {
@@ -257,32 +286,14 @@ async function doRefreshKick() {
   render();
   try {
     // the followed list and the channels added by hand load at the same time
-    const followed = kickSignedOut
-      ? Promise.resolve(null)
-      : invoke<KickFollowed[]>("kick_followed").then(
-          (list) => {
-            state.kickFollowed = list;
-            kickSignedOut = false;
-            // live followed channels show right away from the followed list
-            render();
-            return list;
-          },
-          (e) => {
-            if (String(e) === "not-signed-in") kickNotSignedIn();
-            else state.kickError = `Couldn't load the Kick channels you follow: ${String(e)}`;
-            return null;
-          },
-        );
+    const details: Promise<void>[] = [];
+    const followed = kickSignedOut ? Promise.resolve() : loadFollowed(details);
     const added = checkKickChannels(state.kickSlugs).then((channels) => {
       mergeKickChannels(channels);
       render();
     });
-    const list = await followed;
-    // then the details (pictures) of the followed channels that are live
-    const addedSet = new Set(state.kickSlugs);
-    const liveFollowed = (list ?? []).filter((f) => f.live && !addedSet.has(f.slug)).map((f) => f.slug);
-    const details = checkKickChannels(liveFollowed).then((channels) => mergeKickChannels(channels));
-    await Promise.all([added, details]);
+    await followed;
+    await Promise.all([added, ...details]);
 
     if (!state.kickError.startsWith("Couldn't load")) state.kickError = "";
     saveKickCache();
@@ -305,13 +316,22 @@ function kickLive(): KickChannel[] {
   const bySlug = new Map(state.kickChannels.map((c) => [c.slug, c]));
   const followed = new Map(state.kickFollowed.map((f) => [f.slug, f]));
   const live: KickChannel[] = [];
+  const added = new Set(state.kickSlugs);
   for (const slug of allKickSlugs()) {
     const checked = bySlug.get(slug);
-    if (checked && !checked.error) {
+    const f = followed.get(slug);
+    // a followed channel's live status comes from the (fresher) followed list; the channel
+    // check only adds its picture and details
+    if (f && !added.has(slug)) {
+      if (!f.live) continue;
+      if (checked && !checked.error && checked.live) {
+        live.push({ ...checked, viewers: f.viewers ?? checked.viewers, title: f.title || checked.title });
+        continue;
+      }
+    } else if (checked && !checked.error) {
       if (checked.live) live.push(checked);
       continue;
     }
-    const f = followed.get(slug);
     if (f?.live) {
       live.push({
         slug,
@@ -320,7 +340,7 @@ function kickLive(): KickChannel[] {
         title: f.title,
         category: f.category,
         viewers: f.viewers,
-        thumbnail: null,
+        thumbnail: f.thumbnail ?? null,
         avatar: f.avatar,
         startedAt: null,
         bio: null,
