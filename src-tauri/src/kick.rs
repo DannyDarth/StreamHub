@@ -323,34 +323,34 @@ const ACCOUNT: &str = r#"
 "#;
 
 /// The channels the signed-in user follows (kick.com's own, unofficial API; paged with a cursor).
-const FOLLOWED: &str = r#"
+/// One page of the channels the signed-in user follows (kick.com's own, unofficial API; paged with
+/// a cursor). StreamHub shows each page as it arrives instead of waiting for all of them.
+const FOLLOWED_PAGE: &str = r#"
   if (!token) return { status: 401 };
-  const items = [];
-  let cursor = 0;
-  for (let page = 0; page < 30; page++) {
-    const res = await authed(`/api/v2/channels/followed?cursor=${encodeURIComponent(cursor)}`);
-    if (!res.ok) return page === 0 ? { status: res.status } : { status: 200, items };
-    const p = await res.json();
-    const rows = Array.isArray(p) ? p : p.channels || p.data || [];
-    for (const r of rows) {
-      const name = r.user_username || r.username || (r.user && r.user.username) || r.channel_slug || r.slug || "";
-      const slug = String(r.channel_slug || r.slug || (r.channel && r.channel.slug) || name).toLowerCase();
-      if (!slug) continue;
-      items.push({
-        slug,
-        name: name || slug,
-        live: Boolean(r.is_live ?? (r.livestream && r.livestream.is_live)),
-        viewers: Number.isFinite(Number(r.viewer_count)) ? Number(r.viewer_count) : null,
-        title: r.session_title || (r.livestream && r.livestream.session_title) || "",
-        category: r.category_name || (r.livestream && r.livestream.categories && r.livestream.categories[0] && r.livestream.categories[0].name) || "",
-        avatar: img(r.profile_picture) || img(r.profile_pic) || (r.user && img(r.user.profile_pic)) || null,
-      });
-    }
-    const next = Array.isArray(p) ? null : (p.nextCursor ?? p.next_cursor ?? null);
-    if (next === null || next === undefined || next === cursor || rows.length === 0) break;
-    cursor = next;
+  const cursor = __CURSOR__;
+  const res = await authed(`/api/v2/channels/followed?cursor=${encodeURIComponent(cursor)}`);
+  if (!res.ok) return { status: res.status };
+  const p = await res.json();
+  const rows = Array.isArray(p) ? p : p.channels || p.data || [];
+  const channels = [];
+  for (const r of rows) {
+    const name = r.user_username || r.username || (r.user && r.user.username) || r.channel_slug || r.slug || "";
+    const slug = String(r.channel_slug || r.slug || (r.channel && r.channel.slug) || name).toLowerCase();
+    if (!slug) continue;
+    channels.push({
+      slug,
+      name: name || slug,
+      live: Boolean(r.is_live ?? (r.livestream && r.livestream.is_live)),
+      viewers: Number.isFinite(Number(r.viewer_count)) ? Number(r.viewer_count) : null,
+      title: r.session_title || (r.livestream && r.livestream.session_title) || "",
+      category: r.category_name || (r.livestream && r.livestream.categories && r.livestream.categories[0] && r.livestream.categories[0].name) || "",
+      avatar: img(r.profile_picture) || img(r.profile_pic) || (r.user && img(r.user.profile_pic)) || null,
+      thumbnail: (r.livestream && (img(r.livestream.thumbnail) || img(r.livestream.thumbnail_url))) || img(r.thumbnail) || null,
+    });
   }
-  return { status: 200, items };
+  let next = Array.isArray(p) ? null : (p.nextCursor ?? p.next_cursor ?? null);
+  if (next === cursor || rows.length === 0) next = null;
+  return { status: 200, items: { channels, next } };
 "#;
 
 /// Run a script body in the hidden kick.com page and return the JSON it hands back.
@@ -406,10 +406,16 @@ pub async fn kick_account(app: AppHandle) -> Result<Value, String> {
     items(&run_in_kick(&app, &format!("{SESSION}{ACCOUNT}")).await?)
 }
 
-/// The channels the signed-in Kick account follows.
+/// One page of the channels the signed-in Kick account follows: `{ channels, next }`.
 #[tauri::command]
-pub async fn kick_followed(app: AppHandle) -> Result<Value, String> {
-    items(&run_in_kick(&app, &format!("{SESSION}{FOLLOWED}")).await?)
+pub async fn kick_followed(app: AppHandle, cursor: Option<Value>) -> Result<Value, String> {
+    // the cursor comes back from Kick: a number or a string, nothing else
+    let cursor = match cursor {
+        Some(Value::Number(n)) => n.to_string(),
+        Some(Value::String(s)) if s.len() <= 200 => serde_json::to_string(&s).unwrap(),
+        _ => "0".into(),
+    };
+    items(&run_in_kick(&app, &format!("{SESSION}{}", FOLLOWED_PAGE.replace("__CURSOR__", &cursor))).await?)
 }
 
 /// Open kick.com in a StreamHub window to sign in (or out). Kick's sign-in is kick.com's own page:
