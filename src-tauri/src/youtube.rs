@@ -358,7 +358,7 @@ pub async fn yt_account(app: AppHandle) -> Result<Value, String> {
 /// Put a feed's page token (None for the first page) into a script.
 fn with_token(script: &str, token: Option<String>) -> Result<String, String> {
     let token = match token {
-        Some(t) if t.is_empty() || t.len() > 4000 || !t.chars().all(|c| c.is_ascii_graphic()) => {
+        Some(t) if t.is_empty() || t.len() > 64_000 || !t.chars().all(|c| c.is_ascii_graphic()) => {
             return Err("Invalid page".into())
         }
         t => t,
