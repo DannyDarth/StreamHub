@@ -2,6 +2,7 @@ mod adblock;
 mod auth;
 mod badge;
 mod chat;
+mod crunchyroll;
 mod fastplay;
 mod kick;
 mod streamlink;
@@ -58,6 +59,10 @@ pub fn run() {
             kick::kick_logout,
             chat::open_chat,
             chat::close_chat,
+            crunchyroll::cr_show,
+            crunchyroll::cr_hide,
+            crunchyroll::cr_action,
+            crunchyroll::cr_close,
             open_release_page,
             updater::update_supported,
             updater::download_update,
@@ -131,6 +136,7 @@ pub fn run() {
                     }
                     WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                         chat::layout_panel(window.app_handle());
+                        crunchyroll::layout(window.app_handle());
                     }
                     _ => {}
                 }

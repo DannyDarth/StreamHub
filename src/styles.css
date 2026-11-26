@@ -561,3 +561,24 @@ body.player-full { overflow: hidden; }
 .settings-body > h2 { margin: 24px 0 4px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 18px; }
 .settings-body > h2:first-child { border-top: 0; padding-top: 8px; }
 .settings-body .field select, .settings-body .field input[type="text"], .settings-body textarea { background: var(--bg, var(--panel-2)); }
+
+/* Crunchyroll: the page itself is a webview below this bar */
+.tab-crunchyroll { color: #f78c25; }
+.tab-crunchyroll:hover { background: rgba(244, 117, 33, 0.14); color: #ff9d47; }
+.tab-crunchyroll.active { background: #f47521; color: #fff; font-weight: 600; }
+.cr-bar {
+  position: fixed;
+  top: 52px;
+  left: 0;
+  right: 0;
+  height: 48px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.cr-note { font-size: 12.5px; margin-left: 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
+.cr-main { padding-top: 56px; }

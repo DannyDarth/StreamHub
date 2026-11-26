@@ -40,7 +40,7 @@ import type {
 const TOKEN_KEY = "streamhub.token";
 const REFRESH_MS = 60_000;
 
-type View = "twitch" | "kick" | "youtube" | "settings";
+type View = "twitch" | "kick" | "youtube" | "crunchyroll" | "settings";
 
 interface Playing {
   platform: Platform;
@@ -510,6 +510,43 @@ const ctx: browse.Ctx = {
   removeKick: (slug) => removeKick(slug),
 };
 
+function crError(e: unknown) {
+  state.error = String(e);
+  render();
+}
+
+/** The Crunchyroll tab: crunchyroll.com itself (a webview placed below this bar by the Rust side). */
+function crunchyrollView(): HTMLElement {
+  const action = (name: string) => () => void invoke("cr_action", { action: name }).catch((e) => crError(e));
+  return h(
+    "main",
+    { class: "cr-main" },
+    h(
+      "div",
+      { class: "cr-bar" },
+      h("button", { class: "small", onclick: action("back") }, "‹ Back"),
+      h("button", { class: "small", onclick: action("home") }, "Home"),
+      h("button", { class: "small", onclick: action("reload") }, "Reload"),
+      h("span", { class: "muted cr-note" }, "Crunchyroll's own site and player. Sign in there with your Crunchyroll account."),
+      h("button", { class: "small push", onclick: action("fullscreen") }, "Full screen"),
+      h(
+        "button",
+        {
+          class: "small",
+          title: "Close Crunchyroll (stops what's playing)",
+          onclick: () => {
+            void invoke("cr_close");
+            state.view = "twitch";
+            render();
+          },
+        },
+        "Close",
+      ),
+    ),
+    h("p", { class: "empty" }, "Loading Crunchyroll…"),
+  );
+}
+
 function searchForm(): HTMLElement {
   const site: Platform = state.view === "kick" ? "kick" : state.view === "youtube" ? "youtube" : "twitch";
   const input = h("input", {
@@ -727,6 +764,9 @@ function header(): HTMLElement {
       {
         class: `tab tab-${view}${state.view === view ? " active" : ""}`,
         onclick: () => {
+          // Crunchyroll's page is a separate webview: hidden (still playing) when another tab opens
+          if (view === "crunchyroll") void invoke("cr_show").catch((e) => crError(e));
+          else if (state.view === "crunchyroll") void invoke("cr_hide");
           state.view = view;
           // browsing: the stream keeps playing in the corner
           player.minimize();
@@ -741,9 +781,9 @@ function header(): HTMLElement {
     "header",
     {},
     h("div", { class: "brand" }, h("img", { class: "logo", src: "/icon.png", alt: "" }), "StreamHub"),
-    h("nav", {}, tab("twitch", "Twitch"), tab("kick", "Kick"), tab("youtube", "YouTube"), tab("settings", "Settings")),
+    h("nav", {}, tab("twitch", "Twitch"), tab("kick", "Kick"), tab("youtube", "YouTube"), tab("crunchyroll", "Crunchyroll"), tab("settings", "Settings")),
     h("div", { class: "spacer" }),
-    searchForm(),
+    state.view === "crunchyroll" ? null : searchForm(),
     state.user
       ? h(
           "div",
@@ -1378,7 +1418,9 @@ function render() {
       ? currentBody
       : state.view === "settings"
         ? settingsView()
-        : state.view === "youtube"
+        : state.view === "crunchyroll"
+          ? crunchyrollView()
+          : state.view === "youtube"
           ? (() => {
               const main = h("main", {}, yt.content(ytCtx));
               main.prepend(ytSubnav());
