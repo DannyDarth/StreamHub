@@ -1,12 +1,16 @@
 # StreamHub
 
-Ad-free Twitch and Kick streams, and YouTube without ads and with SponsorBlock, on Windows.
+Ad-free Twitch and Kick streams, YouTube without ads and with SponsorBlock, and Crunchyroll, in one app on Windows.
 
 StreamHub 2 is rebuilt with [Tauri 2](https://tauri.app): a Rust core with a light web UI. StreamHub 1.x (NW.js + Ember) is kept on the [`v1` branch](https://github.com/DannyDarth/StreamHub/tree/v1). The iPhone app is [StreamHub-iOS](https://github.com/DannyDarth/StreamHub-iOS).
 
+## Security
+
+A dependency audit (npm audit and cargo audit) runs every week and on every change. StreamHub never sees your Twitch, Kick, YouTube or Crunchyroll passwords: you sign in on each site's own page. Updates and yt-dlp are checked against their release checksums before they run.
+
 ## Install
 
-Download **StreamHub_…_x64-setup.exe** (installer) or **StreamHub-…-Windows-x64-portable.zip** from the [latest release](https://github.com/DannyDarth/StreamHub/releases/latest). You also need [Streamlink](https://streamlink.github.io/install.html) 8.3 or newer for Twitch and Kick, and a video player such as VLC unless you play streams in StreamHub. YouTube needs nothing else.
+Download **StreamHub_…_x64-setup.exe** (installer) or **StreamHub-…-Windows-x64-portable.zip** from the [latest release](https://github.com/DannyDarth/StreamHub/releases/latest). You also need [Streamlink](https://streamlink.github.io/install.html) 8.3 or newer for Twitch and Kick, and a video player such as VLC unless you play streams in StreamHub. YouTube and Crunchyroll need nothing else.
 
 The installer isn't code-signed yet, so Windows SmartScreen may warn about it: choose **More info → Run anyway**.
 
@@ -40,6 +44,12 @@ StreamHub 2 keeps its own settings: sign in to Twitch (and Kick) again after upg
 - [SponsorBlock](https://sponsor.ajay.app) built in: segments are skipped (with Undo) or marked on the timeline, per category (Settings → YouTube)
 - English audio instead of dubs (Settings → YouTube → Audio language, or the audio menu in the player)
 
+### Crunchyroll
+- crunchyroll.com itself in a StreamHub tab: sign in on Crunchyroll's own page (StreamHub never sees your password), browse, search and watch in Crunchyroll's own player. Episodes are copy-protected, so they play only in Crunchyroll's player: no StreamHub player, downloading or ad blocking
+- Several Crunchyroll tabs: + opens one, Ctrl+click or middle-click a link opens it in a new tab. Hidden tabs keep playing
+- Full screen: the player's own button, or StreamHub's Full screen button (the video fills the screen; Esc leaves it)
+- Optional: play episodes in a Crunchyroll window instead (Microsoft Edge without its address bar; Settings → Crunchyroll)
+
 ### Player
 - Watch in your own player through Streamlink (VLC by default), or **in StreamHub** (beta, Settings → Player → Play streams in) with the same ad blocking, a quality menu and full screen
 - **Small player**: going back to browsing keeps the stream playing in the corner, or turn it off and keep the sound playing or pause (Settings → Player or YouTube)
@@ -50,7 +60,7 @@ StreamHub 2 keeps its own settings: sign in to Twitch (and Kick) again after upg
 - In a panel on the right of StreamHub (the sites' own popout chat: sign in there to send messages), your default browser, or Chatterino; optionally opened with the stream
 
 ### Settings and updates
-- Settings are split into General, Player, Twitch, Kick, YouTube and Chat
+- Settings are split into General, Player, Twitch, Kick, YouTube, Crunchyroll and Chat
 - Theme: dark, light or the same as Windows; a language filter for browsing
 - Automatic updates (Settings → General): StreamHub downloads new versions and installs them when you close or restart it, after checking the installer against the release's SHA256SUMS.txt. Each step is logged to `%TEMP%\StreamHub-update\update.log`. The portable build shows a Download banner instead
 - Tray icon
@@ -88,6 +98,7 @@ Tests: `cargo test` in `src-tauri/`, and `pytest plugin/tests` with `STREAMHUB_T
 | `src-tauri/src/streamlink.rs` | Finding Streamlink and the plugin, launching, auto-switching proxies |
 | `src-tauri/src/kick.rs` | Kick sign-in, followed channels and browsing (hidden kick.com page) |
 | `src/player.ts` | StreamHub's player: hls.js, quality and audio menus, small player, SponsorBlock; ads switch proxies |
+| `src-tauri/src/crunchyroll.rs` | The Crunchyroll tabs (crunchyroll.com in webviews inside StreamHub's window) |
 | `src-tauri/src/fastplay.rs` | Finding the ad-free stream address quickly (all proxies at once), and the local `stream.localhost` proxy the player plays through |
 | `src-tauri/src/updater.rs` | Automatic updates: download, checksum check, running the installer |
 | `src-tauri/src/youtube.rs`, `src-tauri/src/ytdlp.rs`, `src/youtube.ts`, `src/sponsorblock.ts` | YouTube: sign-in, feed, search and channels (hidden youtube.com page), playback through yt-dlp, SponsorBlock |
