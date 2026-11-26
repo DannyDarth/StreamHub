@@ -460,7 +460,7 @@ function updateSettings(patch: Partial<Settings>) {
   if (patch.streamLanguage !== undefined) browse.clearCache();
 }
 
-function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider" | "playIn" | "audioLanguage">(
+function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider" | "playIn" | "audioLanguage" | "miniPlayer">(
   label: string,
   key: K,
   options: readonly (readonly [string, string])[],
@@ -1074,7 +1074,17 @@ function settingsView(): HTMLElement {
         ["external", "My video player (VLC, mpv…)"],
         ["app", "StreamHub (beta)"],
       ],
-      "StreamHub (beta): streams play inside StreamHub, with the same ad blocking. Back keeps the stream playing in the corner while you browse.",
+      "StreamHub (beta): streams play inside StreamHub, with the same ad blocking.",
+    ),
+    select(
+      "When you go back to browsing",
+      "miniPlayer",
+      [
+        ["corner", "Keep playing in a small player in the corner"],
+        ["audio", "Hide the player, keep the sound playing"],
+        ["pause", "Hide the player and pause it"],
+      ],
+      "For StreamHub's player. Show, at the top of the page, brings it back.",
     ),
     checkbox("Low latency", "Smaller delay, may buffer more often (Twitch).", "lowLatency"),
     select(

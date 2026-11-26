@@ -56,6 +56,9 @@ export interface Settings {
   autoUpdate: boolean;
   /** Where streams play: the user's video player, or StreamHub's own player. */
   playIn: "external" | "app";
+  /** StreamHub's player, when you go back to browsing: a small player in the corner, hidden with
+   * the sound playing, or hidden and paused. */
+  miniPlayer: "corner" | "audio" | "pause";
   /** YouTube: what to do with each SponsorBlock category. */
   sbActions: Record<string, "skip" | "show" | "off">;
   /** YouTube: the audio language when a video has several (dubs): a language code, or "original". */

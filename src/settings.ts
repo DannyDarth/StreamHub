@@ -27,6 +27,7 @@ export const DEFAULTS: Settings = {
   checkUpdates: true,
   autoUpdate: true,
   playIn: "external",
+  miniPlayer: "corner",
   sbActions: { ...DEFAULT_ACTIONS },
   audioLanguage: "en",
 };

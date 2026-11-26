@@ -40,7 +40,7 @@ interface Current {
   /** YouTube: the audio tracks (dubs) and the one playing. */
   audioTracks: { id: number; name: string }[];
   audio: number;
-  mode: "full" | "mini";
+  mode: "full" | "mini" | "hidden";
   status: AdblockStatus | null;
   hls: Hls | null;
   /** Which proxy Streamlink tries first (0 = the first in the list). */
@@ -409,6 +409,7 @@ function playFile(url: string) {
 
 /** Close the player, telling the app why (null: stopped by the user). */
 function close(error: string | null) {
+  pausedByHiding = false;
   if (!current) return;
   const id = current.id;
   destroyPlayer();
@@ -566,15 +567,27 @@ export function open(platform: Platform, channel: string, label = channel): numb
   return id;
 }
 
+/** Paused because the player was hidden (Settings → small player off): Show resumes it. */
+let pausedByHiding = false;
+
 export function minimize(): void {
-  if (!current || current.mode === "mini") return;
+  if (!current || current.mode !== "full") return;
   if (fullscreen) void setFullscreen(false);
-  current.mode = "mini";
+  const choice = ctx.settings().miniPlayer ?? "corner";
+  current.mode = choice === "corner" ? "mini" : "hidden";
+  if (choice === "pause" && !video.paused) {
+    video.pause();
+    pausedByHiding = true;
+  }
   layout();
 }
 
 export function expand(): void {
   if (!current) return;
+  if (pausedByHiding) {
+    pausedByHiding = false;
+    void video.play().catch(() => {});
+  }
   current.mode = "full";
   layout();
   window.scrollTo(0, 0);
