@@ -19,80 +19,22 @@ const PREFIX: &str = "crunchyroll-";
 const HOME: &str = "https://www.crunchyroll.com/";
 /// Below StreamHub's header and the Crunchyroll tab bar.
 const TOP: f64 = 52.0 + 48.0;
-/// The page talks to StreamHub by navigating here (the navigation is cancelled): full screen,
-/// its title, and links to open in a new tab.
-const SIGNAL_HOST: &str = "streamhub-crunchyroll.invalid";
 const MAX_TABS: usize = 8;
-
-/// In every frame: Crunchyroll's player picks PlayReady when the browser offers it, and protected
-/// PlayReady video (decoded in hardware) shows black in an embedded webview. Offering only
-/// Widevine makes the player use Widevine, which draws normally. Nothing is decrypted or
-/// bypassed: Crunchyroll's own player and licence server still do all of that.
-const DRM_SCRIPT: &str = r#"
-(() => {
-  // only Crunchyroll's own frames: never sign-in or security-check frames
-  if (!/(^|\.)crunchyroll\.com$/.test(location.hostname)) return;
-  const eme = navigator.requestMediaKeySystemAccess;
-  if (!eme) return;
-  // a Proxy keeps the function looking like the browser's own to the page's checks
-  navigator.requestMediaKeySystemAccess = new Proxy(eme, {
-    apply(target, self, args) {
-      return /playready/i.test(String(args[0]))
-        ? Promise.reject(new DOMException("Unsupported keySystem", "NotSupportedError"))
-        : Reflect.apply(target, self, args);
-    },
-  });
-})();
-(() => {
-  if (!/(^|\.)crunchyroll\.com$/.test(location.hostname)) return;
-  // what StreamHub shows when a video stays black: each frame reports its videos and errors to
-  // the top page, which passes them on
-  const report = (data) => { try { window.top.postMessage({ streamhubCr: data }, "*"); } catch (e) {} };
-  const where = location.hostname + location.pathname.slice(0, 40);
-  window.addEventListener("error", (e) => report({ error: where + ": " + (e.message || "error") }));
-  window.addEventListener("unhandledrejection", (e) => report({ error: where + ": " + String(e.reason && e.reason.message || e.reason).slice(0, 120) }));
-  setInterval(() => {
-    const videos = [...document.querySelectorAll("video")];
-    if (!videos.length) return;
-    report({ video: videos.map((v) =>
-      `${where} ${v.videoWidth}x${v.videoHeight} t=${v.currentTime.toFixed(1)} ready=${v.readyState} ${v.paused ? "paused" : "playing"}${v.error ? " error " + v.error.code : ""}${v.mediaKeys ? " keys" : ""}`
-    ).join("; ") });
-  }, 3000);
-})();
-"#;
+/// The page tells StreamHub things (full screen, links to open in a new tab) by putting a
+/// `#streamhub-…` marker on its address with history.replaceState, which StreamHub reads and
+/// clears. Unlike a navigation, that never interrupts the page or its player.
+const MARK: &str = "streamhub-";
 
 const SCRIPT: &str = r#"
 (() => {
   if (window.top !== window) return;
-  // Signals start a (cancelled) navigation, which would stop the page while it's still loading:
-  // wait until it has loaded, and send at most one every 300 ms
-  const queue = [];
-  let busy = false;
-  const flush = () => {
-    if (busy || !queue.length || document.readyState !== "complete") return;
-    busy = true;
-    const [path, params] = queue.shift();
-    location.href = "https://streamhub-crunchyroll.invalid/" + path + "?" + new URLSearchParams(params);
-    setTimeout(() => { busy = false; flush(); }, 300);
-  };
-  window.addEventListener("load", () => setTimeout(flush, 500));
-  const signal = (path, params) => {
-    if (path === "fullscreen") queue.unshift([path, params]);
-    else if (queue.length < 20) queue.push([path, params]);
-    flush();
-  };
-  document.addEventListener("fullscreenchange", () => signal("fullscreen", { on: document.fullscreenElement ? 1 : 0 }));
+  const replace = history.replaceState.bind(history);
+  const mark = (tag) => replace(history.state, "", location.pathname + location.search + "#streamhub-" + tag);
+  document.addEventListener("fullscreenchange", () => mark(document.fullscreenElement ? "fs1" : "fs0"));
   // Esc leaves StreamHub's full screen (its Full screen button) too
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !document.fullscreenElement) signal("fullscreen", { on: 0 });
+    if (e.key === "Escape" && !document.fullscreenElement) mark("fs0");
   }, true);
-  // the tab's name
-  let last = "";
-  const title = () => {
-    const t = document.title.replace(/\s*[-|]\s*Crunchyroll\s*$/i, "").trim();
-    if (t && t !== last) { last = t; signal("title", { t }); }
-  };
-  setInterval(title, 1500);
   // Ctrl+click, middle click and new-window links open a StreamHub tab
   const open = (e) => {
     const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
@@ -100,11 +42,11 @@ const SCRIPT: &str = r#"
     if (!(e.button === 1 || e.ctrlKey || e.metaKey || a.target === "_blank")) return;
     e.preventDefault();
     e.stopPropagation();
-    signal("newtab", { u: a.href });
+    mark("newtab=" + encodeURIComponent(a.href));
   };
   window.addEventListener("click", open, true);
   window.addEventListener("auxclick", open, true);
-  // episodes open in the Crunchyroll window (Settings): links, and the site's own page changes
+  // with "Play episodes in a Crunchyroll window" on: episode links open there
   const isEpisode = (href) => { try { return new URL(href, location.href).pathname.split("/").includes("watch"); } catch (e) { return false; } };
   window.addEventListener("click", (e) => {
     if (!window.__streamhubEpisodesInWindow || e.defaultPrevented) return;
@@ -112,40 +54,16 @@ const SCRIPT: &str = r#"
     if (!a || !isEpisode(a.href)) return;
     e.preventDefault();
     e.stopPropagation();
-    signal("episode", { u: a.href });
+    mark("episode=" + encodeURIComponent(a.href));
   }, true);
-  for (const name of ["pushState", "replaceState"]) {
-    const original = history[name];
-    history[name] = function (state, title, url) {
-      if (window.__streamhubEpisodesInWindow && url && isEpisode(url) && !isEpisode(location.href)) {
-        signal("episode", { u: new URL(url, location.href).href });
-        return;
-      }
-      return original.apply(this, arguments);
-    };
-  }
-  // what StreamHub shows when a video stays black: is Widevine there, and did the video fail?
-  const config = [{
-    initDataTypes: ["cenc"],
-    videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }],
-    audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"' }],
-  }];
-  setTimeout(() => {
-    (navigator.requestMediaKeySystemAccess
-      ? navigator.requestMediaKeySystemAccess("com.widevine.alpha", config).then(() => "yes", (e) => "no: " + (e && e.message || e))
-      : Promise.resolve("no: EME missing")
-    ).then((wv) => signal("drm", { widevine: wv }));
-  }, 2500);
-  window.addEventListener("message", (e) => {
-    const d = e.data && e.data.streamhubCr;
-    if (!d) return;
-    if (d.video) signal("drm", { video: d.video });
-    if (d.error) signal("drm", { error: d.error });
-  });
-  document.addEventListener("error", (e) => {
-    const v = e.target;
-    if (v instanceof HTMLMediaElement && v.error) signal("drm", { error: "Video error " + v.error.code + (v.error.message ? ": " + v.error.message : "") });
-  }, true);
+  const push = history.pushState.bind(history);
+  history.pushState = function (state, title, url) {
+    if (window.__streamhubEpisodesInWindow && url && isEpisode(url) && !isEpisode(location.href)) {
+      mark("episode=" + encodeURIComponent(new URL(url, location.href).href));
+      return;
+    }
+    return push(state, title, url);
+  };
 })();
 "#;
 
@@ -160,21 +78,12 @@ struct Tabs {
     active: Option<u32>,
 }
 
-/// What the pages reported about protected video (shown in the tab bar).
-#[derive(Clone, Default, Serialize)]
-pub struct Drm {
-    widevine: Option<String>,
-    error: Option<String>,
-    video: Option<String>,
-}
-
-static DRM: Mutex<Drm> = Mutex::new(Drm { widevine: None, error: None, video: None });
 static TABS: Mutex<Tabs> = Mutex::new(Tabs { list: Vec::new(), active: None });
 static NEXT: AtomicU32 = AtomicU32::new(1);
 static SHOWN: AtomicBool = AtomicBool::new(false);
 /// Episodes open in a Crunchyroll window (Microsoft Edge's app mode, where Crunchyroll's player
 /// works) instead of the tab.
-static EPISODES_IN_WINDOW: AtomicBool = AtomicBool::new(true);
+static EPISODES_IN_WINDOW: AtomicBool = AtomicBool::new(false);
 static FULLSCREEN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Serialize)]
@@ -182,7 +91,6 @@ pub struct TabsEvent {
     tabs: Vec<Tab>,
     active: Option<u32>,
     fullscreen: bool,
-    drm: Drm,
 }
 
 fn label(id: u32) -> String {
@@ -195,7 +103,6 @@ fn snapshot() -> TabsEvent {
         tabs: tabs.list.clone(),
         active: tabs.active,
         fullscreen: FULLSCREEN.load(Ordering::SeqCst),
-        drm: DRM.lock().unwrap().clone(),
     }
 }
 
@@ -263,59 +170,7 @@ fn set_fullscreen(app: &AppHandle, on: bool) {
     });
 }
 
-fn navigation(app: &AppHandle, id: u32, url: &Url) -> bool {
-    if url.host_str() == Some(SIGNAL_HOST) {
-        let param = |name: &str| url.query_pairs().find(|(k, _)| k == name).map(|(_, v)| v.into_owned());
-        match url.path() {
-            "/fullscreen" => set_fullscreen(app, param("on").as_deref() == Some("1")),
-            "/title" => {
-                if let Some(title) = param("t") {
-                    let title: String = title.chars().take(80).collect();
-                    let mut tabs = TABS.lock().unwrap();
-                    if let Some(tab) = tabs.list.iter_mut().find(|t| t.id == id) {
-                        tab.title = title;
-                    }
-                    drop(tabs);
-                    changed(app);
-                }
-            }
-            "/drm" => {
-                let mut drm = DRM.lock().unwrap();
-                if let Some(widevine) = param("widevine") {
-                    drm.widevine = Some(widevine.chars().take(120).collect());
-                }
-                if let Some(video) = param("video") {
-                    drm.video = Some(video.chars().take(300).collect());
-                }
-                if let Some(error) = param("error") {
-                    drm.error = Some(error.chars().take(160).collect());
-                }
-                drop(drm);
-                changed(app);
-            }
-            "/episode" => {
-                if let Some(link) = param("u").and_then(|u| u.parse::<Url>().ok()) {
-                    if let Err(e) = open_window(&link) {
-                        let _ = app.emit("crunchyroll-error", e);
-                    }
-                }
-            }
-            "/newtab" => {
-                if let Some(link) = param("u").and_then(|u| u.parse::<Url>().ok()) {
-                    if allowed(&link) {
-                        let app = app.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let _ = new_tab(&app, link);
-                        });
-                    } else if link.scheme() == "https" || link.scheme() == "http" {
-                        let _ = app.opener().open_url(link.as_str(), None::<&str>);
-                    }
-                }
-            }
-            _ => {}
-        }
-        return false;
-    }
+fn navigation(app: &AppHandle, url: &Url) -> bool {
     if allowed(url) {
         if EPISODES_IN_WINDOW.load(Ordering::SeqCst) && is_episode(url) {
             if let Err(e) = open_window(url) {
@@ -329,6 +184,76 @@ fn navigation(app: &AppHandle, id: u32, url: &Url) -> bool {
         let _ = app.opener().open_url(url.as_str(), None::<&str>);
     }
     false
+}
+
+/// A tab's name from its address: the show or episode name in Crunchyroll's links
+/// (/series/ID/the-apothecary-diaries), else the section (Home, Simulcasts…).
+fn title_from(url: &Url) -> String {
+    let parts: Vec<&str> = url.path_segments().map(|p| p.filter(|s| !s.is_empty()).collect()).unwrap_or_default();
+    let words = |slug: &str| {
+        slug.split('-')
+            .filter(|w| !w.is_empty())
+            .map(|w| {
+                let mut c = w.chars();
+                c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    if let Some(i) = parts.iter().position(|p| matches!(*p, "series" | "watch")) {
+        if let Some(slug) = parts.get(i + 2) {
+            return words(slug).chars().take(60).collect();
+        }
+    }
+    match parts.last() {
+        None => "Home".into(),
+        Some(last) => words(last).chars().take(60).collect(),
+    }
+}
+
+/// Each tab is checked a few times a second: its name, and any `#streamhub-…` marker the page set.
+fn watch_tab(app: AppHandle, id: u32) {
+    tauri::async_runtime::spawn(async move {
+        let mut last = String::new();
+        loop {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            let Some(page) = app.get_webview(&label(id)) else { break };
+            let Ok(url) = page.url() else { continue };
+            if let Some(tag) = url.fragment().and_then(|f| f.strip_prefix(MARK)) {
+                let tag = tag.to_string();
+                let _ = page.eval("history.replaceState(history.state, '', location.pathname + location.search)");
+                let link = |prefix: &str| {
+                    tag.strip_prefix(prefix)
+                        .and_then(|u| url::form_urlencoded::parse(format!("u={u}").as_bytes()).next().map(|(_, v)| v.into_owned()))
+                        .and_then(|u| u.parse::<Url>().ok())
+                };
+                if tag == "fs1" || tag == "fs0" {
+                    set_fullscreen(&app, tag == "fs1");
+                } else if let Some(link) = link("newtab=") {
+                    if allowed(&link) {
+                        let _ = new_tab(&app, link);
+                    } else if link.scheme() == "https" || link.scheme() == "http" {
+                        let _ = app.opener().open_url(link.as_str(), None::<&str>);
+                    }
+                } else if let Some(link) = link("episode=") {
+                    if let Err(e) = open_window(&link) {
+                        let _ = app.emit("crunchyroll-error", e);
+                    }
+                }
+                continue;
+            }
+            let title = title_from(&url);
+            if title != last {
+                last = title.clone();
+                let mut tabs = TABS.lock().unwrap();
+                if let Some(tab) = tabs.list.iter_mut().find(|t| t.id == id) {
+                    tab.title = title;
+                }
+                drop(tabs);
+                changed(&app);
+            }
+        }
+    });
 }
 
 /// An episode or movie page: crunchyroll.com/watch/… (with or without a language prefix).
@@ -383,12 +308,11 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<u32, String> {
     let id = NEXT.fetch_add(1, Ordering::SeqCst);
     let nav_app = app.clone();
     let builder = WebviewBuilder::new(label(id), WebviewUrl::External(url))
-        .initialization_script_for_all_frames(DRM_SCRIPT)
         .initialization_script(&format!(
             "window.__streamhubEpisodesInWindow = {};\n{SCRIPT}",
             EPISODES_IN_WINDOW.load(Ordering::SeqCst)
         ))
-        .on_navigation(move |url| navigation(&nav_app, id, url));
+        .on_navigation(move |url| navigation(&nav_app, url));
     // created where it shows (one created off-screen stayed white until it navigated again)
     let (top, width, height) = shown_bounds(app).ok_or("Couldn't size the Crunchyroll page")?;
     window
@@ -402,6 +326,7 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<u32, String> {
     SHOWN.store(true, Ordering::SeqCst);
     layout(app);
     changed(app);
+    watch_tab(app.clone(), id);
     Ok(id)
 }
 
@@ -474,7 +399,6 @@ fn snapshot_locked(tabs: &Tabs) -> TabsEvent {
         tabs: tabs.list.clone(),
         active: tabs.active,
         fullscreen: FULLSCREEN.load(Ordering::SeqCst),
-        drm: DRM.lock().unwrap().clone(),
     }
 }
 
@@ -524,6 +448,15 @@ mod tests {
         assert!(!ok("https://evilcrunchyroll.com/"));
         assert!(!ok("https://crunchyroll.com.example.com/"));
         assert!(!ok("https://example.com/"));
+    }
+
+    #[test]
+    fn titles() {
+        let t = |u: &str| title_from(&u.parse().unwrap());
+        assert_eq!(t("https://www.crunchyroll.com/"), "Home");
+        assert_eq!(t("https://www.crunchyroll.com/series/GY5P48XEY/the-apothecary-diaries"), "The Apothecary Diaries");
+        assert_eq!(t("https://www.crunchyroll.com/watch/GR3VWXP96/resurrection-f"), "Resurrection F");
+        assert_eq!(t("https://www.crunchyroll.com/simulcasts"), "Simulcasts");
     }
 
     #[test]

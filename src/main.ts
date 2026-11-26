@@ -459,7 +459,7 @@ function updateSettings(patch: Partial<Settings>) {
   saveSettings(state.settings);
   if (patch.theme) applyTheme(state.settings.theme);
   if (patch.streamLanguage !== undefined) browse.clearCache();
-  if (patch.crEpisodesInWindow !== undefined) void invoke("cr_episodes_in_window", { on: patch.crEpisodesInWindow });
+  if (patch.crPlayInWindow !== undefined) void invoke("cr_episodes_in_window", { on: patch.crPlayInWindow });
 }
 
 function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider" | "playIn" | "audioLanguage" | "miniPlayer">(
@@ -524,7 +524,6 @@ interface CrTabs {
   tabs: CrTab[];
   active: number | null;
   fullscreen: boolean;
-  drm?: { widevine: string | null; error: string | null; video: string | null };
 }
 let crTabs: CrTabs = { tabs: [], active: null, fullscreen: false };
 
@@ -537,42 +536,13 @@ function crCall(command: string, args: Record<string, unknown> = {}) {
     .catch((e) => crError(e));
 }
 
-void invoke("cr_episodes_in_window", { on: state.settings.crEpisodesInWindow ?? true }).catch(() => {});
+void invoke("cr_episodes_in_window", { on: state.settings.crPlayInWindow ?? false }).catch(() => {});
 void listen<string>("crunchyroll-error", ({ payload }) => crError(payload));
 
 void listen<CrTabs>("crunchyroll-tabs", ({ payload }) => {
   crTabs = payload;
   if (state.view === "crunchyroll") render();
 });
-
-let crCopied = false;
-
-/** Whether protected video can play here (shown so a black video can be explained). */
-function crDrmChip(): HTMLElement | null {
-  const d = crTabs.drm;
-  if (!d || (!d.widevine && !d.error)) return null;
-  const ok = d.widevine === "yes" && !d.error;
-  const text = d.error ? d.error : d.widevine === "yes" ? "DRM: Widevine OK" : `DRM: Widevine missing (${d.widevine?.replace(/^no: /, "")})`;
-  const details = [text, d.video ? `Video: ${d.video}` : "Video: none found yet", d.error ? `Last error: ${d.error}` : ""].filter(Boolean).join("\n");
-  return h(
-    "button",
-    {
-      class: `chip ${ok ? "ok" : "warn"} cr-drm`,
-      title: "Click to copy the details",
-      onclick: () => {
-        void navigator.clipboard.writeText(details).then(() => {
-          crCopied = true;
-          render();
-          setTimeout(() => {
-            crCopied = false;
-            render();
-          }, 4000);
-        }, () => {});
-      },
-    },
-    crCopied ? "Details copied: paste them in the chat" : text,
-  );
-}
 
 /** The Crunchyroll tab: crunchyroll.com itself, in tabs (webviews placed below this bar by the Rust side). */
 function crunchyrollView(): HTMLElement {
@@ -604,7 +574,6 @@ function crunchyrollView(): HTMLElement {
         ),
         h("button", { class: "small cr-new", title: "New tab (or Ctrl+click / middle-click a link)", onclick: () => crCall("cr_new_tab") }, "+"),
       ),
-      crDrmChip(),
       h("button", { class: "small", title: "Open this page in a Crunchyroll window, where episodes play", onclick: action("window") }, "Open in window"),
       h("button", { class: "small", title: "Open this page in your browser", onclick: action("browser") }, "Open in browser"),
       h("button", { class: "small", onclick: action("fullscreen") }, "Full screen"),
@@ -1336,8 +1305,8 @@ function settingsView(): HTMLElement {
                       h("h2", {}, "Crunchyroll"),
                       checkbox(
                         "Play episodes in a Crunchyroll window",
-                        "Episodes open in their own window (Microsoft Edge without its address bar), where Crunchyroll's player works. Sign in to Crunchyroll there once. Off: episodes play in the Crunchyroll tab (beta: the video may stay black).",
-                        "crEpisodesInWindow",
+                        "Episodes open in their own window (Microsoft Edge without its address bar) instead of playing in the Crunchyroll tab. Sign in to Crunchyroll there once. Use it if an episode won't play in the tab.",
+                        "crPlayInWindow",
                       ),
                     ]
                   : [

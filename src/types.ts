@@ -64,7 +64,7 @@ export interface Settings {
   /** YouTube: the audio language when a video has several (dubs): a language code, or "original". */
   audioLanguage: string;
   /** Crunchyroll: episodes play in a Crunchyroll window (Edge app mode) instead of the tab. */
-  crEpisodesInWindow: boolean;
+  crPlayInWindow: boolean;
 }
 
 export type ChatProvider = "panel" | "browser" | "chatterino";

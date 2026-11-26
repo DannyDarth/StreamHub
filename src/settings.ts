@@ -30,7 +30,7 @@ export const DEFAULTS: Settings = {
   miniPlayer: "corner",
   sbActions: { ...DEFAULT_ACTIONS },
   audioLanguage: "en",
-  crEpisodesInWindow: true,
+  crPlayInWindow: false,
 };
 
 /** Languages for the browse pages' filter. */
