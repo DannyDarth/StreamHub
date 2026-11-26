@@ -523,6 +523,7 @@ interface CrTabs {
   tabs: CrTab[];
   active: number | null;
   fullscreen: boolean;
+  drm?: { widevine: string | null; error: string | null };
 }
 let crTabs: CrTabs = { tabs: [], active: null, fullscreen: false };
 
@@ -539,6 +540,15 @@ void listen<CrTabs>("crunchyroll-tabs", ({ payload }) => {
   crTabs = payload;
   if (state.view === "crunchyroll") render();
 });
+
+/** Whether protected video can play here (shown so a black video can be explained). */
+function crDrmChip(): HTMLElement | null {
+  const d = crTabs.drm;
+  if (!d || (!d.widevine && !d.error)) return null;
+  const ok = d.widevine === "yes" && !d.error;
+  const text = d.error ? d.error : d.widevine === "yes" ? "DRM: Widevine OK" : `DRM: Widevine missing (${d.widevine?.replace(/^no: /, "")})`;
+  return h("span", { class: `chip ${ok ? "ok" : "warn"} cr-drm`, title: text }, text);
+}
 
 /** The Crunchyroll tab: crunchyroll.com itself, in tabs (webviews placed below this bar by the Rust side). */
 function crunchyrollView(): HTMLElement {
@@ -570,6 +580,8 @@ function crunchyrollView(): HTMLElement {
         ),
         h("button", { class: "small cr-new", title: "New tab (or Ctrl+click / middle-click a link)", onclick: () => crCall("cr_new_tab") }, "+"),
       ),
+      crDrmChip(),
+      h("button", { class: "small", title: "Open this page in your browser", onclick: action("browser") }, "Open in browser"),
       h("button", { class: "small", onclick: action("fullscreen") }, "Full screen"),
     ),
     crTabs.tabs.length

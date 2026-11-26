@@ -24,6 +24,21 @@ const TOP: f64 = 52.0 + 48.0;
 const SIGNAL_HOST: &str = "streamhub-crunchyroll.invalid";
 const MAX_TABS: usize = 8;
 
+/// In every frame: Crunchyroll's player picks PlayReady when the browser offers it, and protected
+/// PlayReady video (decoded in hardware) shows black in an embedded webview. Offering only
+/// Widevine makes the player use Widevine, which draws normally. Nothing is decrypted or
+/// bypassed: Crunchyroll's own player and licence server still do all of that.
+const DRM_SCRIPT: &str = r#"
+(() => {
+  const eme = navigator.requestMediaKeySystemAccess && navigator.requestMediaKeySystemAccess.bind(navigator);
+  if (!eme) return;
+  navigator.requestMediaKeySystemAccess = (keySystem, configs) =>
+    /playready/i.test(keySystem)
+      ? Promise.reject(new DOMException("Unsupported keySystem", "NotSupportedError"))
+      : eme(keySystem, configs);
+})();
+"#;
+
 const SCRIPT: &str = r#"
 (() => {
   if (window.top !== window) return;
@@ -52,6 +67,22 @@ const SCRIPT: &str = r#"
   };
   window.addEventListener("click", open, true);
   window.addEventListener("auxclick", open, true);
+  // what StreamHub shows when a video stays black: is Widevine there, and did the video fail?
+  const config = [{
+    initDataTypes: ["cenc"],
+    videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"' }],
+    audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"' }],
+  }];
+  setTimeout(() => {
+    (navigator.requestMediaKeySystemAccess
+      ? navigator.requestMediaKeySystemAccess("com.widevine.alpha", config).then(() => "yes", (e) => "no: " + (e && e.message || e))
+      : Promise.resolve("no: EME missing")
+    ).then((wv) => signal("drm", { widevine: wv }));
+  }, 2500);
+  document.addEventListener("error", (e) => {
+    const v = e.target;
+    if (v instanceof HTMLMediaElement && v.error) signal("drm", { error: "Video error " + v.error.code + (v.error.message ? ": " + v.error.message : "") });
+  }, true);
 })();
 "#;
 
@@ -66,6 +97,14 @@ struct Tabs {
     active: Option<u32>,
 }
 
+/// What the pages reported about protected video (shown in the tab bar).
+#[derive(Clone, Default, Serialize)]
+pub struct Drm {
+    widevine: Option<String>,
+    error: Option<String>,
+}
+
+static DRM: Mutex<Drm> = Mutex::new(Drm { widevine: None, error: None });
 static TABS: Mutex<Tabs> = Mutex::new(Tabs { list: Vec::new(), active: None });
 static NEXT: AtomicU32 = AtomicU32::new(1);
 static SHOWN: AtomicBool = AtomicBool::new(false);
@@ -76,6 +115,7 @@ pub struct TabsEvent {
     tabs: Vec<Tab>,
     active: Option<u32>,
     fullscreen: bool,
+    drm: Drm,
 }
 
 fn label(id: u32) -> String {
@@ -84,7 +124,12 @@ fn label(id: u32) -> String {
 
 fn snapshot() -> TabsEvent {
     let tabs = TABS.lock().unwrap();
-    TabsEvent { tabs: tabs.list.clone(), active: tabs.active, fullscreen: FULLSCREEN.load(Ordering::SeqCst) }
+    TabsEvent {
+        tabs: tabs.list.clone(),
+        active: tabs.active,
+        fullscreen: FULLSCREEN.load(Ordering::SeqCst),
+        drm: DRM.lock().unwrap().clone(),
+    }
 }
 
 fn changed(app: &AppHandle) {
@@ -163,6 +208,17 @@ fn navigation(app: &AppHandle, id: u32, url: &Url) -> bool {
                     changed(app);
                 }
             }
+            "/drm" => {
+                let mut drm = DRM.lock().unwrap();
+                if let Some(widevine) = param("widevine") {
+                    drm.widevine = Some(widevine.chars().take(120).collect());
+                }
+                if let Some(error) = param("error") {
+                    drm.error = Some(error.chars().take(160).collect());
+                }
+                drop(drm);
+                changed(app);
+            }
             "/newtab" => {
                 if let Some(link) = param("u").and_then(|u| u.parse::<Url>().ok()) {
                     if allowed(&link) {
@@ -196,6 +252,7 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<u32, String> {
     let id = NEXT.fetch_add(1, Ordering::SeqCst);
     let nav_app = app.clone();
     let builder = WebviewBuilder::new(label(id), WebviewUrl::External(url))
+        .initialization_script_for_all_frames(DRM_SCRIPT)
         .initialization_script(SCRIPT)
         .on_navigation(move |url| navigation(&nav_app, id, url));
     // created off-screen, then placed
@@ -278,7 +335,12 @@ pub async fn cr_close_tab(app: AppHandle, id: u32) -> Result<TabsEvent, String> 
 }
 
 fn snapshot_locked(tabs: &Tabs) -> TabsEvent {
-    TabsEvent { tabs: tabs.list.clone(), active: tabs.active, fullscreen: FULLSCREEN.load(Ordering::SeqCst) }
+    TabsEvent {
+        tabs: tabs.list.clone(),
+        active: tabs.active,
+        fullscreen: FULLSCREEN.load(Ordering::SeqCst),
+        drm: DRM.lock().unwrap().clone(),
+    }
 }
 
 /// The tab bar's buttons for the active tab: "back", "forward", "home", "reload", "fullscreen".
@@ -295,6 +357,13 @@ pub async fn cr_action(app: AppHandle, action: String) -> Result<(), String> {
         "forward" => page.eval("history.forward()").map_err(|e| e.to_string()),
         "reload" => page.eval("location.reload()").map_err(|e| e.to_string()),
         "home" => page.navigate(HOME.parse().map_err(|e| format!("{e}"))?).map_err(|e| e.to_string()),
+        "browser" => {
+            let url = page.url().map_err(|e| e.to_string())?;
+            if !allowed(&url) {
+                return Err("This page can't be opened".into());
+            }
+            app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
+        }
         _ => Err("Unknown action".into()),
     }
 }
