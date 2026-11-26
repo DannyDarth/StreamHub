@@ -33,11 +33,19 @@ pub enum Route {
 impl Route {
     pub fn parse(entry: &str) -> Option<Route> {
         let entry = entry.trim().trim_end_matches('/');
-        if let Some(rest) = entry.strip_prefix("httpproxy://").or_else(|| entry.strip_prefix("http://")) {
+        if let Some(rest) = entry
+            .strip_prefix("httpproxy://")
+            .or_else(|| entry.strip_prefix("http://"))
+        {
             let (host, port) = rest.rsplit_once(':')?;
-            return Some(Route::Forward { host: host.to_string(), port: port.parse().ok()? });
+            return Some(Route::Forward {
+                host: host.to_string(),
+                port: port.parse().ok()?,
+            });
         }
-        entry.starts_with("https://").then(|| Route::Playlist { base: entry.to_string() })
+        entry.starts_with("https://").then(|| Route::Playlist {
+            base: entry.to_string(),
+        })
     }
 
     pub fn label(&self) -> String {
@@ -55,7 +63,9 @@ pub fn has_ads(playlist: &str) -> bool {
     lower.contains("twitch-stitched-ad")
         || lower.contains("\"stitched-ad-")
         || lower.contains("x-tv-twitch-ad-")
-        || playlist.lines().any(|l| l.starts_with("#EXTINF") && l.contains("Amazon"))
+        || playlist
+            .lines()
+            .any(|l| l.starts_with("#EXTINF") && l.contains("Amazon"))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,8 +94,15 @@ fn variants(master: &str, master_url: &str) -> Vec<Variant> {
         if !line.starts_with("#EXT-X-STREAM-INF") {
             continue;
         }
-        let Some(resolution) = attr(line, "RESOLUTION") else { continue };
-        let Some(uri) = lines.get(i + 1).filter(|u| !u.is_empty() && !u.starts_with('#')) else { continue };
+        let Some(resolution) = attr(line, "RESOLUTION") else {
+            continue;
+        };
+        let Some(uri) = lines
+            .get(i + 1)
+            .filter(|u| !u.is_empty() && !u.starts_with('#'))
+        else {
+            continue;
+        };
         let uri = if uri.starts_with("http") {
             uri.to_string()
         } else {
@@ -97,8 +114,14 @@ fn variants(master: &str, master_url: &str) -> Vec<Variant> {
         out.push(Variant {
             uri,
             video: attr(line, "VIDEO").unwrap_or_default().to_string(),
-            height: resolution.split('x').nth(1).and_then(|h| h.parse().ok()).unwrap_or(0),
-            fps: attr(line, "FRAME-RATE").and_then(|f| f.parse().ok()).unwrap_or(30.0),
+            height: resolution
+                .split('x')
+                .nth(1)
+                .and_then(|h| h.parse().ok())
+                .unwrap_or(0),
+            fps: attr(line, "FRAME-RATE")
+                .and_then(|f| f.parse().ok())
+                .unwrap_or(30.0),
         });
     }
     out
@@ -116,18 +139,36 @@ pub fn qualities(variants: &[Variant]) -> Vec<Quality> {
     sorted.sort_by(|a, b| (b.height, b.fps as u32).cmp(&(a.height, a.fps as u32)));
     let mut out: Vec<Quality> = Vec::new();
     for v in sorted {
-        let fps = if v.fps >= 45.0 { format!("{}", v.fps.round() as u32) } else { String::new() };
-        let name = if v.height > 0 { format!("{}p{fps}", v.height) } else { v.video.clone() };
+        let fps = if v.fps >= 45.0 {
+            format!("{}", v.fps.round() as u32)
+        } else {
+            String::new()
+        };
+        let name = if v.height > 0 {
+            format!("{}p{fps}", v.height)
+        } else {
+            v.video.clone()
+        };
         if !out.iter().any(|q| q.name == name) {
-            out.push(Quality { name, url: proxied(&v.uri) });
+            out.push(Quality {
+                name,
+                url: proxied(&v.uri),
+            });
         }
     }
     out
 }
 
 /// Fetch a master playlist (Kick) and pick the quality; returns (media address, qualities).
-pub async fn from_master(master_url: &str, quality: &str) -> Result<(String, Vec<Quality>), String> {
-    let res = proxy_client().get(master_url).send().await.map_err(|e| e.to_string())?;
+pub async fn from_master(
+    master_url: &str,
+    quality: &str,
+) -> Result<(String, Vec<Quality>), String> {
+    let res = proxy_client()
+        .get(master_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     let base = res.url().to_string();
     let text = res.text().await.map_err(|e| e.to_string())?;
     if !valid_master(&text) {
@@ -154,7 +195,8 @@ fn pick(variants: &[Variant], quality: &str) -> Option<String> {
                 sorted.iter().copied().find(|v| v.video == q).or_else(|| {
                     let h = h?;
                     sorted.iter().copied().find(|v| {
-                        v.height == h && fps.map_or(v.fps < 45.0, |f| (v.fps - f as f32).abs() < 2.0)
+                        v.height == h
+                            && fps.map_or(v.fps < 45.0, |f| (v.fps - f as f32).abs() < 2.0)
                     })
                 })
             }
@@ -172,7 +214,9 @@ fn client(proxy: Option<(&str, u16)>) -> Result<reqwest::Client, String> {
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(9));
     if let Some((host, port)) = proxy {
-        builder = builder.proxy(reqwest::Proxy::all(format!("http://{host}:{port}")).map_err(|e| e.to_string())?);
+        builder = builder.proxy(
+            reqwest::Proxy::all(format!("http://{host}:{port}")).map_err(|e| e.to_string())?,
+        );
     }
     builder.build().map_err(|e| e.to_string())
 }
@@ -181,7 +225,10 @@ fn valid_master(text: &str) -> bool {
     text.trim_start().starts_with("#EXTM3U") && text.contains("#EXT-X-STREAM-INF")
 }
 
-async fn token_and_master(client: &reqwest::Client, channel: &str) -> Result<(String, String), String> {
+async fn token_and_master(
+    client: &reqwest::Client,
+    channel: &str,
+) -> Result<(String, String), String> {
     let body = serde_json::json!({
         "operationName": "PlaybackAccessToken",
         "variables": { "isLive": true, "login": channel, "isVod": false, "vodID": "", "playerType": "embed", "platform": "site" },
@@ -201,7 +248,10 @@ async fn token_and_master(client: &reqwest::Client, channel: &str) -> Result<(St
     let (Some(value), Some(signature)) = (t["value"].as_str(), t["signature"].as_str()) else {
         return Err("offline".into());
     };
-    let mut url = reqwest::Url::parse(&format!("https://usher.ttvnw.net/api/channel/hls/{channel}.m3u8")).unwrap();
+    let mut url = reqwest::Url::parse(&format!(
+        "https://usher.ttvnw.net/api/channel/hls/{channel}.m3u8"
+    ))
+    .unwrap();
     url.query_pairs_mut()
         .append_pair("sig", signature)
         .append_pair("token", value)
@@ -229,19 +279,30 @@ async fn token_and_master(client: &reqwest::Client, channel: &str) -> Result<(St
 }
 
 /// One route: the media playlist address for this quality, or why it failed.
-async fn try_route(route: Route, channel: String, quality: String) -> Result<(String, Vec<Quality>), String> {
+async fn try_route(
+    route: Route,
+    channel: String,
+    quality: String,
+) -> Result<(String, Vec<Quality>), String> {
     let (master_url, master) = match &route {
-        Route::Forward { host, port } => token_and_master(&client(Some((host, *port)))?, &channel).await?,
+        Route::Forward { host, port } => {
+            token_and_master(&client(Some((host, *port)))?, &channel).await?
+        }
         Route::Direct => token_and_master(&client(None)?, &channel).await?,
         Route::Playlist { base } => {
-            let mut url = reqwest::Url::parse(&format!("{base}/playlist/{channel}.m3u8")).map_err(|e| e.to_string())?;
+            let mut url = reqwest::Url::parse(&format!("{base}/playlist/{channel}.m3u8"))
+                .map_err(|e| e.to_string())?;
             url.query_pairs_mut()
                 .append_pair("platform", "web")
                 .append_pair("allow_source", "true")
                 .append_pair("allow_audio_only", "true")
                 .append_pair("fast_bread", "true")
                 .append_pair("supported_codecs", "h264");
-            let res = client(None)?.get(url.clone()).send().await.map_err(|e| e.to_string())?;
+            let res = client(None)?
+                .get(url.clone())
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
             if res.status().as_u16() == 404 {
                 return Err("offline".into());
             }
@@ -255,7 +316,14 @@ async fn try_route(route: Route, channel: String, quality: String) -> Result<(St
     let all = variants(&master, &master_url);
     let media = pick(&all, &quality).ok_or("no video")?;
     // skip a server whose stream starts with ads
-    let playlist = client(None)?.get(&media).send().await.map_err(|e| e.to_string())?.text().await.map_err(|e| e.to_string())?;
+    let playlist = client(None)?
+        .get(&media)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
     if has_ads(&playlist) {
         return Err("ads".into());
     }
@@ -276,10 +344,23 @@ pub struct Found {
 
 /// Find an ad-free Twitch stream, trying the proxies from `start` on (all at once; the first in
 /// the list that works wins). Err("offline") when the channel isn't live.
-pub async fn twitch(channel: &str, quality: &str, proxies: &[String], start: usize, direct: bool) -> Result<Found, String> {
-    let mut list: Vec<String> = proxies.iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+pub async fn twitch(
+    channel: &str,
+    quality: &str,
+    proxies: &[String],
+    start: usize,
+    direct: bool,
+) -> Result<Found, String> {
+    let mut list: Vec<String> = proxies
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
     if list.is_empty() {
-        list = adblock::DEFAULT_PROXIES.iter().map(|s| s.to_string()).collect();
+        list = adblock::DEFAULT_PROXIES
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
     }
     let routes: Vec<(usize, Route)> = list
         .iter()
@@ -316,13 +397,24 @@ pub async fn twitch(channel: &str, quality: &str, proxies: &[String], start: usi
             }
         }
     }
-    let all_offline = !results.is_empty() && results.iter().all(|r| matches!(r, Some(Err(e)) if e == "offline"));
+    let all_offline = !results.is_empty()
+        && results
+            .iter()
+            .all(|r| matches!(r, Some(Err(e)) if e == "offline"));
     if all_offline {
         return Err("offline".into());
     }
     if direct {
-        let (url, qualities) = try_route(Route::Direct, channel.to_string(), quality.to_string()).await?;
-        return Ok(Found { url, qualities, server: None, index: list.len(), last: true, direct: true });
+        let (url, qualities) =
+            try_route(Route::Direct, channel.to_string(), quality.to_string()).await?;
+        return Ok(Found {
+            url,
+            qualities,
+            server: None,
+            index: list.len(),
+            last: true,
+            direct: true,
+        });
     }
     Err("no-ad-free".into())
 }
@@ -346,9 +438,17 @@ https://cdn/audio.m3u8\n";
     fn parses_routes() {
         assert_eq!(
             Route::parse("httpproxy://firefox.api.cdn-perfprod.com:2023"),
-            Some(Route::Forward { host: "firefox.api.cdn-perfprod.com".into(), port: 2023 })
+            Some(Route::Forward {
+                host: "firefox.api.cdn-perfprod.com".into(),
+                port: 2023
+            })
         );
-        assert_eq!(Route::parse("https://eu.luminous.dev/"), Some(Route::Playlist { base: "https://eu.luminous.dev".into() }));
+        assert_eq!(
+            Route::parse("https://eu.luminous.dev/"),
+            Some(Route::Playlist {
+                base: "https://eu.luminous.dev".into()
+            })
+        );
         assert_eq!(Route::parse("ftp://x"), None);
     }
 
@@ -357,18 +457,36 @@ https://cdn/audio.m3u8\n";
         let v = variants(MASTER, "https://proxy/playlist/x.m3u8?a=1");
         assert_eq!(v.len(), 3, "audio-only skipped");
         assert_eq!(v[2].uri, "https://proxy/playlist/480p30.m3u8");
-        assert_eq!(pick(&v, "best").as_deref(), Some("https://cdn/chunked.m3u8"));
-        assert_eq!(pick(&v, "720p60,best").as_deref(), Some("https://cdn/720p60.m3u8"));
-        assert_eq!(pick(&v, "480p").as_deref(), Some("https://proxy/playlist/480p30.m3u8"));
-        assert_eq!(pick(&v, "worst").as_deref(), Some("https://proxy/playlist/480p30.m3u8"));
-        assert_eq!(pick(&v, "160p").as_deref(), Some("https://cdn/chunked.m3u8"), "falls back to best");
+        assert_eq!(
+            pick(&v, "best").as_deref(),
+            Some("https://cdn/chunked.m3u8")
+        );
+        assert_eq!(
+            pick(&v, "720p60,best").as_deref(),
+            Some("https://cdn/720p60.m3u8")
+        );
+        assert_eq!(
+            pick(&v, "480p").as_deref(),
+            Some("https://proxy/playlist/480p30.m3u8")
+        );
+        assert_eq!(
+            pick(&v, "worst").as_deref(),
+            Some("https://proxy/playlist/480p30.m3u8")
+        );
+        assert_eq!(
+            pick(&v, "160p").as_deref(),
+            Some("https://cdn/chunked.m3u8"),
+            "falls back to best"
+        );
         let names: Vec<String> = qualities(&v).into_iter().map(|q| q.name).collect();
         assert_eq!(names, ["1080p60", "720p60", "480p"]);
     }
 
     #[test]
     fn finds_ads() {
-        assert!(has_ads("#EXT-X-DATERANGE:ID=\"stitched-ad-1\",CLASS=\"twitch-stitched-ad\""));
+        assert!(has_ads(
+            "#EXT-X-DATERANGE:ID=\"stitched-ad-1\",CLASS=\"twitch-stitched-ad\""
+        ));
         assert!(has_ads("#EXTINF:2.000,Amazon|123\nseg.ts"));
         assert!(!has_ads("#EXTINF:2.000,live\nseg.ts"));
     }
@@ -384,7 +502,9 @@ https://cdn/audio.m3u8\n";
 const PROXY_BASE: &str = "http://stream.localhost/p?u=";
 
 fn allowed_video_host(url: &reqwest::Url) -> bool {
-    let Some(host) = url.host_str() else { return false };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
     let under = |d: &str| host == d || host.ends_with(&format!(".{d}"));
     url.scheme() == "https"
         && (under("ttvnw.net")
@@ -406,7 +526,11 @@ pub fn proxied(url: &str) -> String {
 
 /// Point a playlist's entries (variants, segments, EXT-X-MAP) at the proxy.
 pub fn rewrite_playlist(text: &str, base: &reqwest::Url) -> String {
-    let absolute = |uri: &str| base.join(uri).map(|u| proxied(u.as_str())).unwrap_or_else(|_| uri.to_string());
+    let absolute = |uri: &str| {
+        base.join(uri)
+            .map(|u| proxied(u.as_str()))
+            .unwrap_or_else(|_| uri.to_string())
+    };
     let mut out = String::with_capacity(text.len() * 2);
     for line in text.lines() {
         let trimmed = line.trim();
@@ -441,27 +565,63 @@ fn proxy_client() -> &'static reqwest::Client {
             .user_agent(USER_AGENT)
             .connect_timeout(Duration::from_secs(8))
             .timeout(Duration::from_secs(20))
+            // a redirect must stay on a video host too: never to another site or the local network
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.previous().len() >= 5 {
+                    attempt.error("too many redirects")
+                } else if allowed_video_host(attempt.url()) {
+                    attempt.follow()
+                } else {
+                    attempt.stop()
+                }
+            }))
             .build()
             .expect("HTTP client")
     })
 }
 
-fn respond(status: u16, content_type: &str, body: Vec<u8>) -> tauri::http::Response<Vec<u8>> {
-    tauri::http::Response::builder()
+/// Only StreamHub's own page may read what the proxy returns: not the web pages shown in
+/// StreamHub's other webviews (Crunchyroll, chat, the hidden Kick and YouTube pages).
+fn own_origin(request: &tauri::http::Request<Vec<u8>>) -> Option<String> {
+    let origin = request.headers().get("Origin")?.to_str().ok()?;
+    matches!(
+        origin,
+        "http://tauri.localhost"
+            | "https://tauri.localhost"
+            | "tauri://localhost"
+            | "http://localhost:1420"
+    )
+    .then(|| origin.to_string())
+}
+
+fn respond_to(
+    origin: Option<&str>,
+    status: u16,
+    content_type: &str,
+    body: Vec<u8>,
+) -> tauri::http::Response<Vec<u8>> {
+    let mut response = tauri::http::Response::builder()
         .status(status)
         .header("Content-Type", content_type)
-        .header("Access-Control-Allow-Origin", "*")
         .header("Cache-Control", "no-store")
-        .body(body)
-        .unwrap()
+        .header("Vary", "Origin");
+    if let Some(origin) = origin {
+        response = response.header("Access-Control-Allow-Origin", origin);
+    }
+    response.body(body).unwrap()
 }
 
 /// Handle a request to `stream.localhost`.
 pub async fn proxy(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
+    let origin = own_origin(&request);
+    let origin = origin.as_deref();
+    let respond = |status: u16, content_type: &str, body: Vec<u8>| {
+        respond_to(origin, status, content_type, body)
+    };
     if request.method() == tauri::http::Method::OPTIONS {
         return tauri::http::Response::builder()
             .status(204)
-            .header("Access-Control-Allow-Origin", "*")
+            .header("Access-Control-Allow-Origin", origin.unwrap_or("null"))
             .header("Access-Control-Allow-Methods", "GET, OPTIONS")
             .header("Access-Control-Allow-Headers", "*")
             .body(Vec::new())
@@ -472,7 +632,9 @@ pub async fn proxy(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Respo
         .find(|(k, _)| k == "u")
         .map(|(_, v)| v.into_owned())
         .unwrap_or_default();
-    let Ok(url) = reqwest::Url::parse(&target) else { return respond(400, "text/plain", b"bad address".to_vec()) };
+    let Ok(url) = reqwest::Url::parse(&target) else {
+        return respond(400, "text/plain", b"bad address".to_vec());
+    };
     if !allowed_video_host(&url) {
         return respond(403, "text/plain", b"not a video host".to_vec());
     }
@@ -496,10 +658,16 @@ pub async fn proxy(request: tauri::http::Request<Vec<u8>>) -> tauri::http::Respo
         Ok(b) => b.to_vec(),
         Err(e) => return respond(502, "text/plain", e.to_string().into_bytes()),
     };
-    let is_playlist = content_type.contains("mpegurl") || final_url.path().ends_with(".m3u8") || body.starts_with(b"#EXTM3U");
+    let is_playlist = content_type.contains("mpegurl")
+        || final_url.path().ends_with(".m3u8")
+        || body.starts_with(b"#EXTM3U");
     if is_playlist && status < 400 {
         let text = String::from_utf8_lossy(&body);
-        return respond(status, "application/vnd.apple.mpegurl", rewrite_playlist(&text, &final_url).into_bytes());
+        return respond(
+            status,
+            "application/vnd.apple.mpegurl",
+            rewrite_playlist(&text, &final_url).into_bytes(),
+        );
     }
     respond(status, &content_type, body)
 }
@@ -510,11 +678,15 @@ mod proxy_tests {
 
     #[test]
     fn rewrites_playlists() {
-        let base = reqwest::Url::parse("https://video-weaver.fra05.hls.ttvnw.net/v1/playlist/abc.m3u8").unwrap();
+        let base =
+            reqwest::Url::parse("https://video-weaver.fra05.hls.ttvnw.net/v1/playlist/abc.m3u8")
+                .unwrap();
         let text = "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:2.000,live\nhttps://video-edge-1.abs.hls.ttvnw.net/seg1.ts\nseg2.ts\n";
         let out = rewrite_playlist(text, &base);
         assert!(out.contains("#EXT-X-MAP:URI=\"http://stream.localhost/p?u=https%3A%2F%2Fvideo-weaver.fra05.hls.ttvnw.net%2Fv1%2Fplaylist%2Finit.mp4\""));
-        assert!(out.contains("http://stream.localhost/p?u=https%3A%2F%2Fvideo-edge-1.abs.hls.ttvnw.net%2Fseg1.ts\n"));
+        assert!(out.contains(
+            "http://stream.localhost/p?u=https%3A%2F%2Fvideo-edge-1.abs.hls.ttvnw.net%2Fseg1.ts\n"
+        ));
         assert!(out.contains("#EXTINF:2.000,live\n"));
     }
 
@@ -522,9 +694,13 @@ mod proxy_tests {
     fn only_video_hosts() {
         let ok = |u: &str| allowed_video_host(&reqwest::Url::parse(u).unwrap());
         assert!(ok("https://video-weaver.fra05.hls.ttvnw.net/x.m3u8"));
-        assert!(ok("https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/x.m3u8"));
+        assert!(ok(
+            "https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/x.m3u8"
+        ));
         assert!(!ok("https://example.com/x"));
         assert!(!ok("http://usher.ttvnw.net/x"));
-        assert!(ok("https://manifest.googlevideo.com/api/manifest/hls_variant/x/index.m3u8"));
+        assert!(ok(
+            "https://manifest.googlevideo.com/api/manifest/hls_variant/x/index.m3u8"
+        ));
     }
 }
