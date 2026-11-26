@@ -21,6 +21,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { checkForUpdate, type Update } from "./updates";
 import * as browse from "./browse";
 import * as player from "./player";
+import * as yt from "./youtube";
+import { CATEGORIES as SB_CATEGORIES } from "./sponsorblock";
 import type {
   AdblockStatus,
   EndedEvent,
@@ -38,7 +40,7 @@ import type {
 const TOKEN_KEY = "streamhub.token";
 const REFRESH_MS = 60_000;
 
-type View = "twitch" | "kick" | "settings";
+type View = "twitch" | "kick" | "youtube" | "settings";
 
 interface Playing {
   platform: Platform;
@@ -56,6 +58,7 @@ const state = {
   user: null as TwitchUser | null,
   view: (!savedToken && savedKick.length > 0 ? "kick" : "twitch") as View,
   settings: loadSettings(),
+  settingsTab: "general" as SettingsTab,
   streams: [] as LiveStream[],
   loading: false,
   error: "",
@@ -69,6 +72,7 @@ const state = {
   kickError: "",
   kickKnown: null as Set<string> | null,
   search: "",
+  ytAccount: null as yt.YtAccount | null,
   update: null as Update | null,
   /** The version downloaded and waiting to install. */
   updateReady: "",
@@ -457,7 +461,7 @@ function updateSettings(patch: Partial<Settings>) {
   if (patch.streamLanguage !== undefined) browse.clearCache();
 }
 
-function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider" | "playIn">(
+function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider" | "playIn" | "audioLanguage" | "miniPlayer">(
   label: string,
   key: K,
   options: readonly (readonly [string, string])[],
@@ -507,11 +511,11 @@ const ctx: browse.Ctx = {
 };
 
 function searchForm(): HTMLElement {
-  const site: Platform = state.view === "kick" ? "kick" : "twitch";
+  const site: Platform = state.view === "kick" ? "kick" : state.view === "youtube" ? "youtube" : "twitch";
   const input = h("input", {
     id: "search",
     type: "search",
-    placeholder: site === "kick" ? "Search Kick" : "Search Twitch",
+    placeholder: site === "kick" ? "Search Kick" : site === "youtube" ? "Search YouTube" : "Search Twitch",
     spellcheck: "false",
     autocomplete: "off",
     oninput: (e) => (state.search = (e.target as HTMLInputElement).value),
@@ -526,7 +530,8 @@ function searchForm(): HTMLElement {
         const q = state.search.trim();
         if (!q) return;
         state.view = site;
-        if (site === "kick") browse.go("kick", { kind: "search", q });
+        if (site === "youtube") yt.go({ kind: "search", q });
+        else if (site === "kick") browse.go("kick", { kind: "search", q });
         else browse.go("twitch", { kind: "search", q });
         (document.activeElement as HTMLElement | null)?.blur();
         render();
@@ -534,6 +539,148 @@ function searchForm(): HTMLElement {
     },
     input,
   );
+}
+
+// ---- YouTube ----
+
+let ytChecked = false;
+
+async function checkYtAccount() {
+  ytChecked = true;
+  try {
+    state.ytAccount = await invoke<yt.YtAccount>("yt_account");
+  } catch (e) {
+    state.ytAccount = null;
+    if (String(e) !== "not-signed-in") state.error = `Couldn't check your YouTube sign-in: ${String(e)}`;
+  }
+  try {
+    localStorage.setItem("streamhub.youtube.used", "1");
+  } catch {
+    // storage unavailable
+  }
+  render();
+}
+
+async function ytSignIn() {
+  try {
+    await invoke("yt_login");
+    state.message = "Sign in to YouTube in the window that opened, then close it.";
+  } catch (e) {
+    state.error = String(e);
+  }
+  render();
+}
+
+async function ytSignOut() {
+  try {
+    await invoke("yt_logout");
+  } catch (e) {
+    state.error = String(e);
+  }
+  state.ytAccount = null;
+  yt.clearCache();
+  render();
+}
+
+function watchYoutube(v: yt.YtVideo) {
+  state.error = "";
+  for (const [oldId, p] of state.playing) if (p.inApp) state.playing.delete(oldId);
+  const id = player.open("youtube", v.id, v.title);
+  state.playing.set(id, { platform: "youtube", channel: v.title, status: null, inApp: true });
+  render();
+}
+
+const ytCtx: yt.YtCtx = {
+  render: () => render(),
+  account: () => state.ytAccount,
+  signIn: () => void ytSignIn(),
+  watch: (v) => watchYoutube(v),
+};
+
+function ytSubnav(): HTMLElement {
+  const page = yt.page();
+  return h(
+    "div",
+    { class: "subnav" },
+    yt.nav.length > 1 ? h("button", { class: "small", onclick: () => { yt.back(); render(); } }, "‹ Back") : null,
+    h(
+      "button",
+      { class: `sub${page.kind === "home" ? " active" : ""}`, onclick: () => { yt.go({ kind: "home" }); render(); } },
+      "Home",
+    ),
+    h(
+      "button",
+      { class: `sub${page.kind === "subs" ? " active" : ""}`, onclick: () => { yt.go({ kind: "subs" }); render(); } },
+      "Subscriptions",
+    ),
+    h("button", { class: "small push", onclick: () => { yt.refresh(); render(); } }, "Refresh"),
+  );
+}
+
+function ytSettings(): HTMLElement[] {
+  const a = state.ytAccount;
+  return [
+    h("h2", {}, "YouTube"),
+    a
+      ? h(
+          "div",
+          { class: "kick-account" },
+          a.avatar ? h("img", { class: "avatar", src: a.avatar, alt: "", referrerpolicy: "no-referrer" }) : null,
+          h("span", { class: "muted" }, "Signed in to YouTube as "),
+          h("strong", {}, a.name),
+          h("button", { class: "link", onclick: () => void ytSignOut() }, "Sign out"),
+        )
+      : h(
+          "div",
+          { class: "kick-account" },
+          h("button", { class: "yt-signin", onclick: () => void ytSignIn() }, "Sign in to YouTube"),
+          h("span", { class: "muted" }, "to see your subscriptions. You sign in on Google's own page."),
+        ),
+    select(
+      "Audio language",
+      "audioLanguage",
+      [
+        ["en", "English"],
+        ["original", "The video's original language"],
+        ["es", "Spanish"],
+        ["pt", "Portuguese"],
+        ["fr", "French"],
+        ["de", "German"],
+        ["ja", "Japanese"],
+      ],
+      "Many videos have dubbed audio. StreamHub plays this language when the video has it (the original recording first), otherwise the original.",
+    ),
+    h("h3", {}, "SponsorBlock"),
+    h("p", { class: "muted" }, "Parts of YouTube videos marked by the SponsorBlock community. Skip them, show them on the timeline, or ignore them."),
+    h(
+      "div",
+      { class: "sb-settings" },
+      ...SB_CATEGORIES.map((c) =>
+        h(
+          "label",
+          { class: "sb-row" },
+          h("span", { class: "sb-swatch", style: `background:${c.color}` }),
+          h("span", {}, c.name),
+          h(
+            "select",
+            {
+              onchange: (e) =>
+                updateSettings({
+                  sbActions: { ...state.settings.sbActions, [c.id]: (e.target as HTMLSelectElement).value as "skip" | "show" | "off" },
+                }),
+            },
+            ...(
+              [
+                ["skip", "Skip"],
+                ["show", "Show on timeline"],
+                ["off", "Off"],
+              ] as const
+            ).map(([value, label]) => h("option", { value, selected: (state.settings.sbActions[c.id] ?? "off") === value }, label)),
+          ),
+        ),
+      ),
+    ),
+  ];
 }
 
 /** Following / Browse (or My channels / Browse) and a back button. */
@@ -583,6 +730,7 @@ function header(): HTMLElement {
           state.view = view;
           // browsing: the stream keeps playing in the corner
           player.minimize();
+          if ((view === "youtube" || view === "settings") && !ytChecked) void checkYtAccount();
           if (view === "settings") void loadInfo();
           render();
         },
@@ -593,7 +741,7 @@ function header(): HTMLElement {
     "header",
     {},
     h("div", { class: "brand" }, h("img", { class: "logo", src: "/icon.png", alt: "" }), "StreamHub"),
-    h("nav", {}, tab("twitch", "Twitch"), tab("kick", "Kick"), tab("settings", "Settings")),
+    h("nav", {}, tab("twitch", "Twitch"), tab("kick", "Kick"), tab("youtube", "YouTube"), tab("settings", "Settings")),
     h("div", { class: "spacer" }),
     searchForm(),
     state.user
@@ -884,6 +1032,31 @@ function textInput(label: string, key: "streamlinkPath" | "playerPath", placehol
   );
 }
 
+type SettingsTab = "general" | "player" | "twitch" | "kick" | "youtube" | "chat";
+
+const SETTINGS_TABS: [SettingsTab, string][] = [
+  ["general", "General"],
+  ["player", "Player"],
+  ["twitch", "Twitch"],
+  ["kick", "Kick"],
+  ["youtube", "YouTube"],
+  ["chat", "Chat"],
+];
+
+/** What StreamHub's player does when you go back to browsing (under Player and YouTube). */
+function miniPlayerSelect(): HTMLElement {
+  return select(
+    "Small player",
+    "miniPlayer",
+    [
+      ["corner", "Keep playing in a small player in the corner"],
+      ["audio", "Off: hide the player, keep the sound playing"],
+      ["pause", "Off: hide the player and pause it"],
+    ],
+    "What StreamHub's player does when you go back to browsing. Show, at the top of the page, brings it back.",
+  );
+}
+
 function settingsView(): HTMLElement {
   const s = state.settings;
   const info = state.info;
@@ -910,132 +1083,168 @@ function settingsView(): HTMLElement {
     "main",
     { class: "settings" },
     h("h1", {}, "Settings"),
-
-    h("h2", {}, "Streamlink"),
     h(
-      "p",
-      { class: "muted" },
-      info?.streamlink ? `Found: ${info.streamlink}` : "Streamlink wasn't found. Install it from streamlink.github.io or set its path.",
-    ),
-    textInput("Streamlink path (optional)", "streamlinkPath", "Found automatically"),
-    textInput("Video player (optional)", "playerPath", "Streamlink's default (VLC)"),
-    h("label", { class: "field" }, h("span", {}, "Quality"), quality),
-    select(
-      "Play streams in",
-      "playIn",
-      [
-        ["external", "My video player (VLC, mpv…)"],
-        ["app", "StreamHub (beta)"],
-      ],
-      "StreamHub (beta): streams play inside StreamHub, with the same ad blocking. Back keeps the stream playing in the corner while you browse.",
-    ),
-    checkbox("Low latency", "Smaller delay, may buffer more often (Twitch).", "lowLatency"),
-    select(
-      "Smoother playback",
-      "buffer",
-      [
-        ["normal", "Normal"],
-        ["more", "More buffer (fewer stutters, a few seconds behind)"],
-        ["most", "Most buffer (for unsteady connections)"],
-      ],
-      "Keeps more video buffered so short hiccups don't stutter. Not used with low latency.",
-    ),
-
-    h("h2", {}, "Twitch ad blocking"),
-    h(
-      "p",
-      { class: "muted" },
-      info?.plugin
-        ? `Plugin: ${info.plugin}${info.bundledPlugin ? " (bundled)" : ""}`
-        : "The ad blocking plugin wasn't found. StreamHub won't play Twitch streams while it's missing.",
-    ),
-    checkbox("Block ads", "Play Twitch streams through ad-free proxies. If an ad gets through, StreamHub switches to the next proxy.", "proxyEnabled"),
-    !s.proxyEnabled ? h("p", { class: "warning" }, "Ad blocking is off: Twitch streams will show ads.") : null,
-    h("label", { class: "field" }, h("span", {}, "Proxies, one per line (empty: defaults)"), proxies),
-    checkbox(
-      "Direct through my VPN",
-      "If no proxy works, play from Twitch directly. Only turn this on while a VPN in an ad-free country is connected.",
-      "direct",
-    ),
-    checkbox(
-      "Ad-free backup stream",
-      "During an ad break, play a lower quality (usually 360p) ad-free stream instead of pausing. Needs the bundled plugin.",
-      "backupStream",
-    ),
-    checkbox("Ad blocking badge", "Show the status in the corner of the player.", "badge"),
-
-    h("h2", {}, "Chat"),
-    checkbox("Chat", "Add a Chat button to playing streams.", "chatEnabled"),
-    !s.chatEnabled
-      ? null
-      : h(
-      "label",
-      { class: "field" },
-      h("span", {}, "Open chat in"),
+      "div",
+      { class: "settings-layout" },
       h(
-        "select",
-        {
-          onchange: (e) =>
-            updateSettings({ chatProvider: (e.target as HTMLSelectElement).value as Settings["chatProvider"] }),
-        },
-        ...(
-          [
-            ["panel", "StreamHub (right side)"],
-            ["browser", "My default browser"],
-            ["chatterino", "Chatterino (Twitch; Kick chat stays in StreamHub)"],
-          ] as const
-        ).map(([value, label]) => h("option", { value, selected: s.chatProvider === value }, label)),
+        "nav",
+        { class: "settings-nav" },
+        ...SETTINGS_TABS.map(([tab, label]) =>
+          h(
+            "button",
+            {
+              class: `settings-tab settings-tab-${tab}${state.settingsTab === tab ? " active" : ""}`,
+              onclick: () => {
+                state.settingsTab = tab;
+                render();
+              },
+            },
+            label,
+          ),
+        ),
       ),
-    ),
-    s.chatEnabled
-      ? checkbox("Open chat with the stream", "Open the channel's chat when a stream starts.", "chatAutoOpen")
-      : null,
-
-    ...kickSettings(),
-
-    h("h2", {}, "Browse"),
-    select("Stream language", "streamLanguage", LANGUAGES, "Top live streams and categories only show streams in this language."),
-
-    h("h2", {}, "Updates"),
-    checkbox("Check for updates", "Look for a new StreamHub version on GitHub when StreamHub starts and every few hours.", "checkUpdates"),
-    checkbox(
-      "Install updates automatically",
-      "Download new versions in the background and install them when StreamHub restarts or you quit it. Not for the portable build.",
-      "autoUpdate",
-    ),
-    h(
-      "p",
-      {},
-      h("button", { class: "small", onclick: () => void checkUpdates(true) }, "Check now"),
-      state.appVersion ? h("span", { class: "muted" }, `  You have StreamHub ${state.appVersion}.`) : null,
-    ),
-
-    h("h2", {}, "Appearance"),
-    select("Theme", "theme", [
-      ["dark", "Dark"],
-      ["light", "Light"],
-      ["system", "Same as Windows"],
-    ]),
-
-    h("h2", {}, "Notifications"),
-    checkbox("Live notifications", "Notify me when a Twitch channel I follow or one of my Kick channels goes live.", "notifications"),
-
-    h(
-      "p",
-      {},
       h(
-        "button",
-        {
-          class: "link",
-          onclick: () => {
-            state.settings = { ...DEFAULTS };
-            saveSettings(state.settings);
-            applyTheme(state.settings.theme);
-            browse.clearCache();
-            render();
-          },
-        },
-        "Reset settings",
+        "div",
+        { class: "settings-body" },
+        ...(state.settingsTab === "general"
+          ? [
+          h("h2", {}, "Appearance"),
+          select("Theme", "theme", [
+            ["dark", "Dark"],
+            ["light", "Light"],
+            ["system", "Same as Windows"],
+          ]),
+
+          h("h2", {}, "Browse"),
+          select("Stream language", "streamLanguage", LANGUAGES, "Top live streams and categories only show streams in this language."),
+
+          h("h2", {}, "Notifications"),
+          checkbox("Live notifications", "Notify me when a Twitch channel I follow or one of my Kick channels goes live.", "notifications"),
+
+          h("h2", {}, "Updates"),
+          checkbox("Check for updates", "Look for a new StreamHub version on GitHub when StreamHub starts and every few hours.", "checkUpdates"),
+          checkbox(
+            "Install updates automatically",
+            "Download new versions in the background and install them when StreamHub restarts or you quit it. Not for the portable build.",
+            "autoUpdate",
+          ),
+          h(
+            "p",
+            {},
+            h("button", { class: "small", onclick: () => void checkUpdates(true) }, "Check now"),
+            state.appVersion ? h("span", { class: "muted" }, `  You have StreamHub ${state.appVersion}.`) : null,
+          ),
+
+          h(
+            "p",
+            {},
+            h(
+              "button",
+              {
+                class: "link",
+                onclick: () => {
+                  state.settings = { ...DEFAULTS };
+                  saveSettings(state.settings);
+                  applyTheme(state.settings.theme);
+                  browse.clearCache();
+                  render();
+                },
+              },
+              "Reset settings",
+            ),
+          ),
+            ]
+          : state.settingsTab === "player"
+            ? [
+                h("h2", {}, "Player"),
+            select(
+              "Play streams in",
+              "playIn",
+              [
+                ["external", "My video player (VLC, mpv…)"],
+                ["app", "StreamHub (beta)"],
+              ],
+              "StreamHub (beta): streams play inside StreamHub, with the same ad blocking.",
+            ),
+                miniPlayerSelect(),
+            h("h2", {}, "Streamlink"),
+            h(
+              "p",
+              { class: "muted" },
+              info?.streamlink ? `Found: ${info.streamlink}` : "Streamlink wasn't found. Install it from streamlink.github.io or set its path.",
+            ),
+            textInput("Streamlink path (optional)", "streamlinkPath", "Found automatically"),
+            textInput("Video player (optional)", "playerPath", "Streamlink's default (VLC)"),
+            h("label", { class: "field" }, h("span", {}, "Quality"), quality),
+            checkbox("Low latency", "Smaller delay, may buffer more often (Twitch).", "lowLatency"),
+            select(
+              "Smoother playback",
+              "buffer",
+              [
+                ["normal", "Normal"],
+                ["more", "More buffer (fewer stutters, a few seconds behind)"],
+                ["most", "Most buffer (for unsteady connections)"],
+              ],
+              "Keeps more video buffered so short hiccups don't stutter. Not used with low latency.",
+            ),
+              ]
+            : state.settingsTab === "twitch"
+              ? [
+            h("h2", {}, "Twitch ad blocking"),
+            h(
+              "p",
+              { class: "muted" },
+              info?.plugin
+                ? `Plugin: ${info.plugin}${info.bundledPlugin ? " (bundled)" : ""}`
+                : "The ad blocking plugin wasn't found. StreamHub won't play Twitch streams while it's missing.",
+            ),
+            checkbox("Block ads", "Play Twitch streams through ad-free proxies. If an ad gets through, StreamHub switches to the next proxy.", "proxyEnabled"),
+            !s.proxyEnabled ? h("p", { class: "warning" }, "Ad blocking is off: Twitch streams will show ads.") : null,
+            h("label", { class: "field" }, h("span", {}, "Proxies, one per line (empty: defaults)"), proxies),
+            checkbox(
+              "Direct through my VPN",
+              "If no proxy works, play from Twitch directly. Only turn this on while a VPN in an ad-free country is connected.",
+              "direct",
+            ),
+            checkbox(
+              "Ad-free backup stream",
+              "During an ad break, play a lower quality (usually 360p) ad-free stream instead of pausing. Needs the bundled plugin.",
+              "backupStream",
+            ),
+            checkbox("Ad blocking badge", "Show the status in the corner of the player.", "badge"),
+                ]
+              : state.settingsTab === "kick"
+                ? kickSettings()
+                : state.settingsTab === "youtube"
+                  ? [...ytSettings(), h("h2", {}, "Player"), miniPlayerSelect()]
+                  : [
+              h("h2", {}, "Chat"),
+              checkbox("Chat", "Add a Chat button to playing streams.", "chatEnabled"),
+              !s.chatEnabled
+                ? null
+                : h(
+                "label",
+                { class: "field" },
+                h("span", {}, "Open chat in"),
+                h(
+                  "select",
+                  {
+                    onchange: (e) =>
+                      updateSettings({ chatProvider: (e.target as HTMLSelectElement).value as Settings["chatProvider"] }),
+                  },
+                  ...(
+                    [
+                      ["panel", "StreamHub (right side)"],
+                      ["browser", "My default browser"],
+                      ["chatterino", "Chatterino (Twitch; Kick chat stays in StreamHub)"],
+                    ] as const
+                  ).map(([value, label]) => h("option", { value, selected: s.chatProvider === value }, label)),
+                ),
+              ),
+              s.chatEnabled
+                ? checkbox("Open chat with the stream", "Open the channel's chat when a stream starts.", "chatAutoOpen")
+                : null,
+                    ]),
       ),
     ),
   );
@@ -1169,7 +1378,13 @@ function render() {
       ? currentBody
       : state.view === "settings"
         ? settingsView()
-        : state.view === "kick"
+        : state.view === "youtube"
+          ? (() => {
+              const main = h("main", {}, yt.content(ytCtx));
+              main.prepend(ytSubnav());
+              return main;
+            })()
+          : state.view === "kick"
           ? withSubnav("kick", browse.kickContent(ctx) ?? kickView())
           : state.user
             ? withSubnav("twitch", browse.twitchContent(ctx) ?? liveView())
@@ -1184,6 +1399,8 @@ function render() {
         h("button", { class: "chat-close", title: "Close chat", onclick: () => void closeChat() }, "×"),
       )
     : null;
+  // rebuilding the page keeps the scroll position (a feed growing while it's scrolled)
+  const scroll = currentView === state.view ? window.scrollY : null;
   currentBody = body;
   currentView = state.view;
   app.replaceChildren(
@@ -1195,6 +1412,7 @@ function render() {
     body,
     chatBar ?? "",
   );
+  if (scroll !== null && window.scrollY !== scroll) window.scrollTo(0, scroll);
   if (searchFocused) {
     const search = document.getElementById("search") as HTMLInputElement | null;
     search?.focus();
@@ -1224,6 +1442,14 @@ window.setInterval(() => {
   void refresh();
   void refreshKick();
 }, REFRESH_MS);
+void listen("youtube-login-closed", async () => {
+  state.message = "";
+  yt.clearCache();
+  await checkYtAccount();
+  if (!state.ytAccount) state.error = "Not signed in to YouTube. Sign in on Google's page, then close the window.";
+  render();
+});
+
 void listen("kick-login-closed", async () => {
   state.message = "";
   kickSignedOut = false;
@@ -1256,6 +1482,11 @@ void start();
 loadKickCache();
 void checkKickAccount();
 void refreshKick();
+try {
+  if (localStorage.getItem("streamhub.youtube.used")) void checkYtAccount();
+} catch {
+  // storage unavailable
+}
 void getVersion().then((v) => {
   state.appVersion = v;
   void checkUpdates();

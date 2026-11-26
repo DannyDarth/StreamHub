@@ -1,4 +1,5 @@
 import type { Settings } from "./types";
+import { DEFAULT_ACTIONS } from "./sponsorblock";
 
 const KEY = "streamhub.settings";
 
@@ -26,6 +27,9 @@ export const DEFAULTS: Settings = {
   checkUpdates: true,
   autoUpdate: true,
   playIn: "external",
+  miniPlayer: "corner",
+  sbActions: { ...DEFAULT_ACTIONS },
+  audioLanguage: "en",
 };
 
 /** Languages for the browse pages' filter. */
@@ -60,7 +64,7 @@ export function followSystemTheme(get: () => Settings["theme"]): void {
 export function loadSettings(): Settings {
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}") as Partial<Settings>;
-    const settings = { ...DEFAULTS, ...saved };
+    const settings = { ...DEFAULTS, ...saved, sbActions: { ...DEFAULTS.sbActions, ...(saved.sbActions ?? {}) } };
     // the chat window became the chat panel
     if ((settings.chatProvider as string) === "window") settings.chatProvider = "panel";
     return settings;
