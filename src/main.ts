@@ -539,6 +539,11 @@ function crCall(command: string, args: Record<string, unknown> = {}) {
 void invoke("cr_episodes_in_window", { on: state.settings.crPlayInWindow ?? false }).catch(() => {});
 void listen<string>("crunchyroll-error", ({ payload }) => crError(payload));
 
+// Esc in StreamHub's own page (focus left on the bar) leaves Crunchyroll's full screen too
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && state.view === "crunchyroll" && crTabs.fullscreen) void invoke("cr_action", { action: "fullscreen" });
+});
+
 void listen<CrTabs>("crunchyroll-tabs", ({ payload }) => {
   crTabs = payload;
   if (state.view === "crunchyroll") render();
@@ -576,7 +581,7 @@ function crunchyrollView(): HTMLElement {
       ),
       h("button", { class: "small", title: "Open this page in a Crunchyroll window, where episodes play", onclick: action("window") }, "Open in window"),
       h("button", { class: "small", title: "Open this page in your browser", onclick: action("browser") }, "Open in browser"),
-      h("button", { class: "small", onclick: action("fullscreen") }, "Full screen"),
+      h("button", { class: "small", title: "The video fills the screen (Esc to leave)", onclick: action("fullscreen") }, "Full screen"),
     ),
     crTabs.tabs.length
       ? h("p", { class: "empty" }, "Loading Crunchyroll…")

@@ -180,9 +180,62 @@ pub fn layout(app: &AppHandle) {
 
 /// Full screen: StreamHub's window goes full screen first, then the tab fills it once the
 /// window has its new size (placing it during the change left it black).
+/// StreamHub's Full screen button: the video (or its player frame) fills the page, which fills the
+/// screen. Undone by FILL_VIDEO_OFF.
+const FILL_VIDEO_ON: &str = r##"
+(() => {
+  const area = (el) => { const r = el.getBoundingClientRect(); return r.width * r.height; };
+  const players = [...document.querySelectorAll("video, iframe")]
+    .filter((el) => area(el) > 40000 && (el.tagName === "VIDEO" || /player|vilos/i.test(el.src || el.id || el.className)));
+  if (!players.length) return;
+  let box = players.sort((a, b) => area(b) - area(a))[0];
+  // the player's controls sit on top of the video in the same-sized box
+  const size = box.getBoundingClientRect();
+  while (box.parentElement && box.parentElement !== document.body) {
+    const r = box.parentElement.getBoundingClientRect();
+    if (Math.abs(r.width - size.width) > 4 || Math.abs(r.height - size.height) > 60) break;
+    box = box.parentElement;
+  }
+  box.dataset.streamhubFill = box.getAttribute("style") || "";
+  box.style.cssText += ";position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;z-index:2147483647!important;background:#000!important;margin:0!important";
+  document.documentElement.style.overflow = "hidden";
+  window.dispatchEvent(new Event("resize"));
+})();
+"##;
+
+const FILL_VIDEO_OFF: &str = r##"
+(() => {
+  for (const box of document.querySelectorAll("[data-streamhub-fill]")) {
+    box.setAttribute("style", box.dataset.streamhubFill);
+    delete box.dataset.streamhubFill;
+  }
+  document.documentElement.style.overflow = "";
+  window.dispatchEvent(new Event("resize"));
+})();
+"##;
+
+fn active_page(app: &AppHandle) -> Option<tauri::Webview> {
+    let active = TABS.lock().unwrap().active?;
+    app.get_webview(&label(active))
+}
+
 fn set_fullscreen(app: &AppHandle, on: bool) {
     if FULLSCREEN.swap(on, Ordering::SeqCst) == on {
         return;
+    }
+    if !on {
+        for id in TABS
+            .lock()
+            .unwrap()
+            .list
+            .iter()
+            .map(|t| t.id)
+            .collect::<Vec<_>>()
+        {
+            if let Some(page) = app.get_webview(&label(id)) {
+                let _ = page.eval(FILL_VIDEO_OFF);
+            }
+        }
     }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -192,6 +245,10 @@ fn set_fullscreen(app: &AppHandle, on: bool) {
         for delay in [150, 400, 900] {
             tokio::time::sleep(Duration::from_millis(delay)).await;
             layout(&app);
+        }
+        // keys (Esc) go to the page, not to StreamHub's hidden bar
+        if let Some(page) = active_page(&app) {
+            let _ = page.set_focus();
         }
         changed(&app);
     });
@@ -471,7 +528,13 @@ fn snapshot_locked(tabs: &Tabs) -> TabsEvent {
 #[tauri::command]
 pub async fn cr_action(app: AppHandle, action: String) -> Result<(), String> {
     if action == "fullscreen" {
-        set_fullscreen(&app, !FULLSCREEN.load(Ordering::SeqCst));
+        let on = !FULLSCREEN.load(Ordering::SeqCst);
+        if on {
+            if let Some(page) = active_page(&app) {
+                let _ = page.eval(FILL_VIDEO_ON);
+            }
+        }
+        set_fullscreen(&app, on);
         return Ok(());
     }
     let active = TABS
