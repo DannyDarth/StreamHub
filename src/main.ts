@@ -1339,6 +1339,8 @@ function render() {
         h("button", { class: "chat-close", title: "Close chat", onclick: () => void closeChat() }, "×"),
       )
     : null;
+  // rebuilding the page keeps the scroll position (a feed growing while it's scrolled)
+  const scroll = currentView === state.view ? window.scrollY : null;
   currentBody = body;
   currentView = state.view;
   app.replaceChildren(
@@ -1350,6 +1352,7 @@ function render() {
     body,
     chatBar ?? "",
   );
+  if (scroll !== null && window.scrollY !== scroll) window.scrollTo(0, scroll);
   if (searchFocused) {
     const search = document.getElementById("search") as HTMLInputElement | null;
     search?.focus();

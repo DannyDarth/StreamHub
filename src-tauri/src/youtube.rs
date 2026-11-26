@@ -169,6 +169,19 @@ const WRAPPER: &str = r#"
     walk(root);
     return { videos, channels };
   };
+  // The token for the next page of a feed (YouTube's "continuation"), or null at the end
+  const nextPage = (root) => {
+    let token = null;
+    const walk = (n) => {
+      if (!n || typeof n !== "object") return;
+      const c = n.continuationItemRenderer;
+      const t = c && c.continuationEndpoint && c.continuationEndpoint.continuationCommand && c.continuationEndpoint.continuationCommand.token;
+      if (t) token = t;
+      for (const k in n) if (k !== "frameworkUpdates") walk(n[k]);
+    };
+    walk(root);
+    return token;
+  };
   let result;
   try {
     result = await (async () => {
@@ -200,17 +213,20 @@ const ACCOUNT: &str = r#"
 "#;
 
 const FEED: &str = r#"
-  const r = await api("browse", { browseId: "FEsubscriptions" }, true);
+  const token = __TOKEN__;
+  const r = await api("browse", token ? { continuation: token } : { browseId: "FEsubscriptions" }, true);
   if (r.status !== 200) return { status: r.status };
   const { videos } = collect(r.data);
-  if (!videos.length && /signInEndpoint|Sign in/.test(JSON.stringify(r.data).slice(0, 20000))) return { status: 401 };
-  return { status: 200, items: videos };
+  if (!token && !videos.length && /signInEndpoint|Sign in/.test(JSON.stringify(r.data).slice(0, 20000))) return { status: 401 };
+  return { status: 200, items: { videos, next: nextPage(r.data) } };
 "#;
 
 const HOME: &str = r#"
-  const r = await api("browse", { browseId: "FEwhat_to_watch" }, true);
+  const token = __TOKEN__;
+  const signedIn = Boolean(cookie("SAPISID") || cookie("__Secure-3PAPISID"));
+  const r = await api("browse", token ? { continuation: token } : { browseId: "FEwhat_to_watch" }, signedIn);
   if (r.status !== 200) return { status: r.status };
-  return { status: 200, items: collect(r.data).videos };
+  return { status: 200, items: { videos: collect(r.data).videos, next: nextPage(r.data) } };
 "#;
 
 const SEARCH: &str = r#"
@@ -335,16 +351,28 @@ pub async fn yt_account(app: AppHandle) -> Result<Value, String> {
     run(&app, ACCOUNT).await
 }
 
-/// New videos and live streams from the signed-in account's subscriptions.
-#[tauri::command]
-pub async fn yt_feed(app: AppHandle) -> Result<Value, String> {
-    run(&app, FEED).await
+/// Put a feed's page token (None for the first page) into a script.
+fn with_token(script: &str, token: Option<String>) -> Result<String, String> {
+    let token = match token {
+        Some(t) if t.is_empty() || t.len() > 4000 || !t.chars().all(|c| c.is_ascii_alphanumeric() || "-_=%".contains(c)) => {
+            return Err("Invalid page".into())
+        }
+        t => t,
+    };
+    Ok(script.replace("__TOKEN__", &serde_json::to_string(&token).unwrap()))
 }
 
-/// The Home page's recommended videos (personal when signed in).
+/// New videos and live streams from the signed-in account's subscriptions, a page at a time:
+/// `{ videos, next }` (`next` is the token for the next page, or null).
 #[tauri::command]
-pub async fn yt_home(app: AppHandle) -> Result<Value, String> {
-    run(&app, HOME).await
+pub async fn yt_feed(app: AppHandle, token: Option<String>) -> Result<Value, String> {
+    run(&app, &with_token(FEED, token)?).await
+}
+
+/// The Home page's recommended videos (personal when signed in), a page at a time: `{ videos, next }`.
+#[tauri::command]
+pub async fn yt_home(app: AppHandle, token: Option<String>) -> Result<Value, String> {
+    run(&app, &with_token(HOME, token)?).await
 }
 
 /// Search YouTube: `{ videos, channels }`.

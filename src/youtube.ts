@@ -68,6 +68,15 @@ interface Entry {
   error: string;
   data: unknown;
   at: number;
+  /** Feeds: more pages have been added, so the entry isn't reloaded until Refresh. */
+  paged?: boolean;
+  more?: boolean;
+}
+
+/** One page of a feed (Home, Subscriptions). */
+interface Feed {
+  videos: YtVideo[];
+  next: string | null;
 }
 
 const cache = new Map<string, Entry>();
@@ -75,7 +84,7 @@ const MAX_AGE = 120_000;
 
 function load<T>(ctx: YtCtx, key: string, fetcher: () => Promise<T>): Entry {
   let entry = cache.get(key);
-  if (!entry || (!entry.loading && Date.now() - entry.at > MAX_AGE)) {
+  if (!entry || (!entry.loading && !entry.paged && Date.now() - entry.at > MAX_AGE)) {
     entry = { loading: true, error: "", data: entry?.data ?? null, at: Date.now() };
     cache.set(key, entry);
     const current = entry;
@@ -94,6 +103,47 @@ function load<T>(ctx: YtCtx, key: string, fetcher: () => Promise<T>): Entry {
       });
   }
   return entry;
+}
+
+/** Load the next page of a feed and add it to the end. */
+function loadMore(ctx: YtCtx, key: string, command: string): void {
+  const entry = cache.get(key);
+  const feed = entry?.data as Feed | null;
+  if (!entry || entry.loading || entry.more || !feed?.next) return;
+  entry.more = true;
+  invoke<Feed>(command, { token: feed.next })
+    .then((page) => {
+      if (cache.get(key) !== entry) return;
+      const seen = new Set(feed.videos.map((v) => v.id));
+      entry.data = { videos: [...feed.videos, ...page.videos.filter((v) => !seen.has(v.id))], next: page.next };
+      entry.paged = true;
+    })
+    .catch(() => {
+      // Stop at an error: Refresh starts over
+      if (cache.get(key) === entry) entry.data = { ...feed, next: null };
+    })
+    .finally(() => {
+      entry.more = false;
+      ctx.render();
+    });
+}
+
+let moreObserver: IntersectionObserver | null = null;
+
+/** The end of a feed: loads the next page when scrolled near it. */
+function feedEnd(ctx: YtCtx, key: string, command: string, entry: Entry): HTMLElement | null {
+  const feed = entry.data as Feed | null;
+  if (!feed?.next || entry.loading) return null;
+  const end = h("p", { class: "empty" }, "Loading more…");
+  moreObserver?.disconnect();
+  moreObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((e) => e.isIntersecting)) loadMore(ctx, key, command);
+    },
+    { rootMargin: "1200px" },
+  );
+  moreObserver.observe(end);
+  return end;
 }
 
 export function refresh(): void {
@@ -203,8 +253,8 @@ function byDay(ctx: YtCtx, videos: YtVideo[]): HTMLElement[] {
 // ---- pages ----
 
 function home(ctx: YtCtx): HTMLElement {
-  const entry = load(ctx, "home", () => invoke<YtVideo[]>("yt_home"));
-  const videos = (entry.data as YtVideo[] | null) ?? [];
+  const entry = load(ctx, "home", () => invoke<Feed>("yt_home"));
+  const videos = (entry.data as Feed | null)?.videos ?? [];
   const live = videos.filter((v) => v.live);
   const rest = videos.filter((v) => !v.live);
   return h(
@@ -213,6 +263,7 @@ function home(ctx: YtCtx): HTMLElement {
     status(entry, "YouTube didn't recommend any videos.", videos.length > 0),
     live.length ? section("Live now", grid(ctx, live)) : null,
     rest.length ? section("Recommended", grid(ctx, rest)) : null,
+    feedEnd(ctx, "home", "yt_home", entry),
   );
 }
 
@@ -226,8 +277,8 @@ function subs(ctx: YtCtx): HTMLElement {
       h("button", { class: "yt-signin", onclick: () => ctx.signIn() }, "Sign in to YouTube"),
     );
   }
-  const entry = load(ctx, "subs", () => invoke<YtVideo[]>("yt_feed"));
-  const videos = (entry.data as YtVideo[] | null) ?? [];
+  const entry = load(ctx, "subs", () => invoke<Feed>("yt_feed"));
+  const videos = (entry.data as Feed | null)?.videos ?? [];
   const live = videos.filter((v) => v.live);
   const recent = videos.filter((v) => !v.live);
   if (entry.error === "not-signed-in") {
@@ -244,6 +295,7 @@ function subs(ctx: YtCtx): HTMLElement {
     status(entry, "No new videos from your subscriptions.", videos.length > 0),
     live.length ? section("Live now", grid(ctx, live)) : null,
     ...byDay(ctx, recent),
+    feedEnd(ctx, "subs", "yt_feed", entry),
   );
 }
 
