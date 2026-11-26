@@ -194,16 +194,20 @@ pub fn allowed(url: &Url) -> bool {
     under("crunchyroll.com") || host == "accounts.google.com" || host == "appleid.apple.com"
 }
 
-/// Place every tab: the active one below the tab bar (or the whole window in full screen), the
-/// others off-screen, where they keep playing.
-pub fn layout(app: &AppHandle) {
-    let Some(window) = app.get_window("main") else { return };
-    let (Ok(scale), Ok(inner)) = (window.scale_factor(), window.inner_size()) else { return };
-    let size = inner.to_logical::<f64>(scale);
+/// Where the shown tab goes: below the tab bar (or the whole window in full screen).
+fn shown_bounds(app: &AppHandle) -> Option<(f64, f64, f64)> {
+    let window = app.get_window("main")?;
+    let size = window.inner_size().ok()?.to_logical::<f64>(window.scale_factor().ok()?);
     let fullscreen = FULLSCREEN.load(Ordering::SeqCst);
     let right = if !fullscreen && app.get_webview(chat::PANEL).is_some() { chat::PANEL_WIDTH } else { 0.0 };
     let (top, width) = if fullscreen { (0.0, size.width) } else { (TOP, (size.width - right).max(0.0)) };
-    let height = (size.height - top).max(0.0);
+    Some((top, width, (size.height - top).max(0.0)))
+}
+
+/// Place every tab: the active one below the tab bar (or the whole window in full screen), the
+/// others off-screen, where they keep playing.
+pub fn layout(app: &AppHandle) {
+    let Some((top, width, height)) = shown_bounds(app) else { return };
     let (ids, active) = {
         let tabs = TABS.lock().unwrap();
         (tabs.list.iter().map(|t| t.id).collect::<Vec<_>>(), tabs.active)
@@ -302,9 +306,10 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<u32, String> {
         .initialization_script_for_all_frames(DRM_SCRIPT)
         .initialization_script(SCRIPT)
         .on_navigation(move |url| navigation(&nav_app, id, url));
-    // created off-screen, then placed
+    // created where it shows (one created off-screen stayed white until it navigated again)
+    let (top, width, height) = shown_bounds(app).ok_or("Couldn't size the Crunchyroll page")?;
     window
-        .add_child(builder, LogicalPosition::new(-20_000.0, TOP), LogicalSize::new(800.0, 600.0))
+        .add_child(builder, LogicalPosition::new(0.0, top), LogicalSize::new(width, height))
         .map_err(|e| e.to_string())?;
     {
         let mut tabs = TABS.lock().unwrap();
