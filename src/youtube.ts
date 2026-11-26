@@ -169,6 +169,37 @@ function section(title: string, ...children: (Node | null)[]): HTMLElement {
   return h("section", { class: "section" }, h("h2", {}, title), ...children);
 }
 
+/** The day a video came out, from YouTube's "3 hours ago" text: "Today", "Yesterday", a weekday,
+ * "Last week" and so on. YouTube only gives the age, so hours are counted back from now. */
+export function dayLabel(published: string, now = new Date()): string {
+  if (/scheduled|premieres|upcoming/i.test(published)) return "Upcoming";
+  const m = /(\d+)\s*(second|minute|hour|day|week|month|year)/i.exec(published);
+  if (!m) return "Earlier";
+  const n = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  if (unit === "week") return n === 1 ? "Last week" : `${n} weeks ago`;
+  if (unit === "month") return n === 1 ? "Last month" : `${n} months ago`;
+  if (unit === "year") return n === 1 ? "Last year" : `${n} years ago`;
+  const hours = unit === "day" ? n * 24 : unit === "hour" ? n : 0;
+  const date = new Date(now.getTime() - hours * 3600_000);
+  const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((midnight(now) - midnight(date)) / 86_400_000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return date.toLocaleDateString(undefined, { weekday: "long" });
+  return "Last week";
+}
+
+/** Videos grouped by day, in feed order (newest first). */
+function byDay(ctx: YtCtx, videos: YtVideo[]): HTMLElement[] {
+  const groups = new Map<string, YtVideo[]>();
+  for (const v of videos) {
+    const label = dayLabel(v.published);
+    groups.set(label, [...(groups.get(label) ?? []), v]);
+  }
+  return [...groups].map(([label, list]) => section(label, grid(ctx, list)));
+}
+
 // ---- pages ----
 
 function subs(ctx: YtCtx): HTMLElement {
@@ -198,7 +229,7 @@ function subs(ctx: YtCtx): HTMLElement {
     {},
     status(entry, "No new videos from your subscriptions.", videos.length > 0),
     live.length ? section("Live now", grid(ctx, live)) : null,
-    recent.length ? section("New videos", grid(ctx, recent)) : null,
+    ...byDay(ctx, recent),
   );
 }
 

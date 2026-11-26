@@ -58,6 +58,8 @@ export interface Settings {
   playIn: "external" | "app";
   /** YouTube: what to do with each SponsorBlock category. */
   sbActions: Record<string, "skip" | "show" | "off">;
+  /** YouTube: the audio language when a video has several (dubs): a language code, or "original". */
+  audioLanguage: string;
 }
 
 export type ChatProvider = "panel" | "browser" | "chatterino";

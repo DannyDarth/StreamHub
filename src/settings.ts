@@ -28,6 +28,7 @@ export const DEFAULTS: Settings = {
   autoUpdate: true,
   playIn: "external",
   sbActions: { ...DEFAULT_ACTIONS },
+  audioLanguage: "en",
 };
 
 /** Languages for the browse pages' filter. */

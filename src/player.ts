@@ -37,6 +37,9 @@ interface Current {
   /** YouTube: SponsorBlock segments, and the ones the user undid. */
   segments: sponsorblock.Segment[];
   undone: Set<string>;
+  /** YouTube: the audio tracks (dubs) and the one playing. */
+  audioTracks: { id: number; name: string }[];
+  audio: number;
   mode: "full" | "mini";
   status: AdblockStatus | null;
   hls: Hls | null;
@@ -325,6 +328,25 @@ function play(url: string) {
     hls.currentLevel = Number(pick.url.slice(6));
     renderBar();
   });
+  hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
+    if (current !== session || session.platform !== "youtube") return;
+    const tracks = hls.audioTracks.map((t, i) => ({ i, name: t.name || t.lang || `Track ${i + 1}`, lang: (t.lang || "").toLowerCase(), def: Boolean(t.default) }));
+    session.audioTracks = tracks.map((t) => ({ id: t.i, name: t.name }));
+    if (tracks.length < 2) return;
+    // YouTube adds dubbed audio tracks: play the language from Settings (English by default),
+    // preferring the original recording, else the original language
+    const want = ctx.settings().audioLanguage || "en";
+    const score = (t: (typeof tracks)[number]) => {
+      const original = /original/i.test(t.name);
+      if (want !== "original" && (t.lang.startsWith(want) || t.name.toLowerCase().startsWith(languageName(want)))) return original ? 4 : 3;
+      if (original) return 2;
+      return t.def ? 1 : 0;
+    };
+    const best = tracks.reduce((a, b) => (score(b) > score(a) ? b : a));
+    session.audio = best.i;
+    if (hls.audioTrack !== best.i) hls.audioTrack = best.i;
+    renderBar();
+  });
   hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
     if (current !== session || session.platform !== "twitch") return;
     const ads = playlistHasAds(data.details);
@@ -433,6 +455,40 @@ function qualitySelect(c: Current): HTMLElement {
   return select;
 }
 
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: "english",
+  es: "spanish",
+  pt: "portuguese",
+  fr: "french",
+  de: "german",
+  it: "italian",
+  ja: "japanese",
+  ko: "korean",
+  ru: "russian",
+  hi: "hindi",
+};
+
+function languageName(code: string): string {
+  return LANGUAGE_NAMES[code] ?? code;
+}
+
+function audioSelect(c: Current): HTMLElement {
+  return h(
+    "select",
+    {
+      class: "player-quality",
+      title: "Audio language",
+      onchange: (e) => {
+        const id = Number((e.target as HTMLSelectElement).value);
+        if (current !== c || !c.hls) return;
+        c.audio = id;
+        c.hls.audioTrack = id;
+      },
+    },
+    ...c.audioTracks.map((t) => h("option", { value: String(t.id), selected: t.id === c.audio }, t.name)),
+  );
+}
+
 function renderBar() {
   if (!current) {
     bar.replaceChildren();
@@ -447,6 +503,7 @@ function renderBar() {
     chip(c.status, c.platform),
     h("span", { class: "player-spacer" }),
     c.mode === "mini" ? button("⤢", "Show the stream", () => expand()) : null,
+    c.mode === "full" && c.audioTracks.length > 1 ? audioSelect(c) : null,
     c.mode === "full" && c.qualities.length > 1 ? qualitySelect(c) : null,
     c.mode === "full" && ctx.chatEnabled() && !fullscreen && c.platform !== "youtube"
       ? button("Chat", "Open chat", () => ctx.openChat(c.platform, c.channel))
@@ -491,6 +548,8 @@ export function open(platform: Platform, channel: string, label = channel): numb
     label,
     segments: [],
     undone: new Set(),
+    audioTracks: [],
+    audio: -1,
     mode: "full",
     status: null,
     hls: null,

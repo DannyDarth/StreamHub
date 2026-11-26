@@ -130,6 +130,19 @@ pub fn choose(info: &Value) -> Option<(&'static str, String)> {
     if let Some(url) = hls {
         return Some(("hls", url.to_string()));
     }
+    // No HLS: the best file with both video and audio, preferring English or the original audio
+    // over a dub
+    let audio = |f: &Value| -> u8 {
+        let note = f["format_note"].as_str().unwrap_or("").to_lowercase();
+        let lang = f["language"].as_str().unwrap_or("").to_lowercase();
+        if lang.starts_with("en") || note.contains("original") {
+            2
+        } else if lang.is_empty() || note.contains("default") {
+            1
+        } else {
+            0
+        }
+    };
     formats
         .iter()
         .filter(|f| {
@@ -137,7 +150,7 @@ pub fn choose(info: &Value) -> Option<(&'static str, String)> {
                 && f["acodec"].as_str().is_some_and(|a| a != "none")
                 && f["protocol"].as_str().is_some_and(|p| p == "https")
         })
-        .max_by_key(|f| f["height"].as_u64().unwrap_or(0))
+        .max_by_key(|f| (audio(f), f["height"].as_u64().unwrap_or(0)))
         .and_then(|f| f["url"].as_str())
         .map(|u| ("file", u.to_string()))
 }

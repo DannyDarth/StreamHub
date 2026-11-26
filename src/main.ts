@@ -460,7 +460,7 @@ function updateSettings(patch: Partial<Settings>) {
   if (patch.streamLanguage !== undefined) browse.clearCache();
 }
 
-function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider" | "playIn">(
+function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider" | "playIn" | "audioLanguage">(
   label: string,
   key: K,
   options: readonly (readonly [string, string])[],
@@ -630,6 +630,20 @@ function ytSettings(): HTMLElement[] {
           h("button", { class: "yt-signin", onclick: () => void ytSignIn() }, "Sign in to YouTube"),
           h("span", { class: "muted" }, "to see your subscriptions. You sign in on Google's own page."),
         ),
+    select(
+      "Audio language",
+      "audioLanguage",
+      [
+        ["en", "English"],
+        ["original", "The video's original language"],
+        ["es", "Spanish"],
+        ["pt", "Portuguese"],
+        ["fr", "French"],
+        ["de", "German"],
+        ["ja", "Japanese"],
+      ],
+      "Many videos have dubbed audio. StreamHub plays this language when the video has it (the original recording first), otherwise the original.",
+    ),
     h("h3", {}, "SponsorBlock"),
     h("p", { class: "muted" }, "Parts of YouTube videos marked by the SponsorBlock community. Skip them, show them on the timeline, or ignore them."),
     h(
