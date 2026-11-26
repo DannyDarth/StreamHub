@@ -134,46 +134,34 @@ pub fn apply(app: &AppHandle) -> bool {
 }
 
 #[cfg(windows)]
-fn run_installer(installer: &Path, exe: &Path) -> std::io::Result<()> {
+fn run_installer(installer: &Path, _exe: &Path) -> std::io::Result<()> {
+    use std::io::Write;
     use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     // keep running after StreamHub exits, even if StreamHub was started inside a job object
     // (e.g. by an installer) that ends its processes with it
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-    let quote = |p: &Path| p.display().to_string().replace('\'', "''");
-    let log = installer.with_file_name("update.log");
-    // waits for StreamHub to close, runs the installer (progress only), starts StreamHub again;
-    // every step goes to update.log next to the installer
-    let script = format!(
-        "$log = '{log}'; \
-         function Log($m) {{ Add-Content -Path $log -Value ((Get-Date -Format s) + ' ' + $m) }}; \
-         try {{ \
-           Log 'Waiting for StreamHub to close'; \
-           Wait-Process -Id {pid} -Timeout 30 -ErrorAction SilentlyContinue; \
-           Start-Sleep -Seconds 1; \
-           Log 'Running {name}'; \
-           $p = Start-Process -FilePath '{installer}' -ArgumentList '/P' -PassThru -Wait; \
-           Log ('Installer finished with exit code ' + $p.ExitCode); \
-           Start-Process -FilePath '{exe}'; \
-           Log 'Started StreamHub' \
-         }} catch {{ Log ('Failed: ' + $_) }}",
-        log = quote(&log),
-        pid = std::process::id(),
-        name = installer.file_name().and_then(|n| n.to_str()).unwrap_or("installer"),
-        installer = quote(installer),
-        exe = quote(exe),
-    );
+    // StreamHub's own installer (Tauri's NSIS script) does the rest: /P shows only a progress bar,
+    // it closes StreamHub if it's still running, /UPDATE skips first-install steps (shortcuts,
+    // WebView2) and /R starts StreamHub again when it's done.
     let spawn = |flags: u32| {
-        std::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+        std::process::Command::new(installer)
+            .args(["/P", "/R", "/UPDATE"])
             .creation_flags(flags)
             .spawn()
-            .map(|_| ())
     };
-    // breaking away from a job is refused when the job doesn't allow it: then start it normally
-    spawn(CREATE_NO_WINDOW | DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB)
-        .or_else(|_| spawn(CREATE_NO_WINDOW | DETACHED_PROCESS))
+    let result = spawn(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB).or_else(|_| spawn(DETACHED_PROCESS));
+    if let Ok(mut log) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(installer.with_file_name("update.log"))
+    {
+        let _ = match &result {
+            Ok(child) => writeln!(log, "Started {} (process {})", installer.display(), child.id()),
+            Err(e) => writeln!(log, "Couldn't start {}: {e}", installer.display()),
+        };
+    }
+    result.map(|_| ())
 }
 
 #[cfg(not(windows))]
