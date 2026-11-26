@@ -57,8 +57,23 @@ const DRM_SCRIPT: &str = r#"
 const SCRIPT: &str = r#"
 (() => {
   if (window.top !== window) return;
-  const signal = (path, params) =>
-    { location.href = "https://streamhub-crunchyroll.invalid/" + path + "?" + new URLSearchParams(params); };
+  // Signals start a (cancelled) navigation, which would stop the page while it's still loading:
+  // wait until it has loaded, and send at most one every 300 ms
+  const queue = [];
+  let busy = false;
+  const flush = () => {
+    if (busy || !queue.length || document.readyState !== "complete") return;
+    busy = true;
+    const [path, params] = queue.shift();
+    location.href = "https://streamhub-crunchyroll.invalid/" + path + "?" + new URLSearchParams(params);
+    setTimeout(() => { busy = false; flush(); }, 300);
+  };
+  window.addEventListener("load", () => setTimeout(flush, 500));
+  const signal = (path, params) => {
+    if (path === "fullscreen") queue.unshift([path, params]);
+    else if (queue.length < 20) queue.push([path, params]);
+    flush();
+  };
   document.addEventListener("fullscreenchange", () => signal("fullscreen", { on: document.fullscreenElement ? 1 : 0 }));
   // Esc leaves StreamHub's full screen (its Full screen button) too
   window.addEventListener("keydown", (e) => {
