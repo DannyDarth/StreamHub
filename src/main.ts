@@ -40,7 +40,7 @@ import type {
 const TOKEN_KEY = "streamhub.token";
 const REFRESH_MS = 60_000;
 
-type View = "twitch" | "kick" | "youtube" | "settings";
+type View = "twitch" | "kick" | "youtube" | "crunchyroll" | "settings";
 
 interface Playing {
   platform: Platform;
@@ -459,6 +459,7 @@ function updateSettings(patch: Partial<Settings>) {
   saveSettings(state.settings);
   if (patch.theme) applyTheme(state.settings.theme);
   if (patch.streamLanguage !== undefined) browse.clearCache();
+  if (patch.crPlayInWindow !== undefined) void invoke("cr_episodes_in_window", { on: patch.crPlayInWindow });
 }
 
 function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider" | "playIn" | "audioLanguage" | "miniPlayer">(
@@ -509,6 +510,89 @@ const ctx: browse.Ctx = {
   },
   removeKick: (slug) => removeKick(slug),
 };
+
+function crError(e: unknown) {
+  state.error = String(e);
+  render();
+}
+
+interface CrTab {
+  id: number;
+  title: string;
+}
+interface CrTabs {
+  tabs: CrTab[];
+  active: number | null;
+  fullscreen: boolean;
+}
+let crTabs: CrTabs = { tabs: [], active: null, fullscreen: false };
+
+function crCall(command: string, args: Record<string, unknown> = {}) {
+  void invoke<CrTabs | null>(command, args)
+    .then((t) => {
+      if (t) crTabs = t;
+      render();
+    })
+    .catch((e) => crError(e));
+}
+
+void invoke("cr_episodes_in_window", { on: state.settings.crPlayInWindow ?? false }).catch(() => {});
+void listen<string>("crunchyroll-error", ({ payload }) => crError(payload));
+
+// Esc in StreamHub's own page (focus left on the bar) leaves Crunchyroll's full screen too
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && state.view === "crunchyroll" && crTabs.fullscreen) void invoke("cr_action", { action: "fullscreen" });
+});
+
+void listen<CrTabs>("crunchyroll-tabs", ({ payload }) => {
+  crTabs = payload;
+  if (state.view === "crunchyroll") render();
+});
+
+/** The Crunchyroll tab: crunchyroll.com itself, in tabs (webviews placed below this bar by the Rust side). */
+function crunchyrollView(): HTMLElement {
+  const action = (name: string) => () => void invoke("cr_action", { action: name }).catch((e) => crError(e));
+  return h(
+    "main",
+    { class: "cr-main" },
+    h(
+      "div",
+      { class: "cr-bar" },
+      h("button", { class: "small", title: "Back", onclick: action("back") }, "‹"),
+      h("button", { class: "small", title: "Forward", onclick: action("forward") }, "›"),
+      h("button", { class: "small", title: "Reload", onclick: action("reload") }, "⟳"),
+      h("button", { class: "small", title: "Crunchyroll's home page", onclick: action("home") }, "Home"),
+      h(
+        "div",
+        { class: "cr-tabs" },
+        ...crTabs.tabs.map((t) =>
+          h(
+            "div",
+            { class: `cr-tab${t.id === crTabs.active ? " active" : ""}`, title: t.title },
+            h("button", { class: "cr-tab-name", onclick: () => crCall("cr_select", { id: t.id }) }, t.title || "Crunchyroll"),
+            h(
+              "button",
+              { class: "cr-tab-close", title: "Close this tab (stops what it's playing)", onclick: () => crCall("cr_close_tab", { id: t.id }) },
+              "×",
+            ),
+          ),
+        ),
+        h("button", { class: "small cr-new", title: "New tab (or Ctrl+click / middle-click a link)", onclick: () => crCall("cr_new_tab") }, "+"),
+      ),
+      h("button", { class: "small", title: "Open this page in a Crunchyroll window, where episodes play", onclick: action("window") }, "Open in window"),
+      h("button", { class: "small", title: "Open this page in your browser", onclick: action("browser") }, "Open in browser"),
+      h("button", { class: "small", title: "The video fills the screen (Esc to leave)", onclick: action("fullscreen") }, "Full screen"),
+    ),
+    crTabs.tabs.length
+      ? h("p", { class: "empty" }, "Loading Crunchyroll…")
+      : h(
+          "div",
+          { class: "empty" },
+          h("p", {}, "No Crunchyroll tabs are open."),
+          h("button", { onclick: () => crCall("cr_new_tab") }, "Open Crunchyroll"),
+        ),
+  );
+}
 
 function searchForm(): HTMLElement {
   const site: Platform = state.view === "kick" ? "kick" : state.view === "youtube" ? "youtube" : "twitch";
@@ -727,6 +811,9 @@ function header(): HTMLElement {
       {
         class: `tab tab-${view}${state.view === view ? " active" : ""}`,
         onclick: () => {
+          // Crunchyroll's page is a separate webview: hidden (still playing) when another tab opens
+          if (view === "crunchyroll") crCall("cr_show");
+          else if (state.view === "crunchyroll") void invoke("cr_hide");
           state.view = view;
           // browsing: the stream keeps playing in the corner
           player.minimize();
@@ -741,9 +828,9 @@ function header(): HTMLElement {
     "header",
     {},
     h("div", { class: "brand" }, h("img", { class: "logo", src: "/icon.png", alt: "" }), "StreamHub"),
-    h("nav", {}, tab("twitch", "Twitch"), tab("kick", "Kick"), tab("youtube", "YouTube"), tab("settings", "Settings")),
+    h("nav", {}, tab("twitch", "Twitch"), tab("kick", "Kick"), tab("youtube", "YouTube"), tab("crunchyroll", "Crunchyroll"), tab("settings", "Settings")),
     h("div", { class: "spacer" }),
-    searchForm(),
+    state.view === "crunchyroll" ? null : searchForm(),
     state.user
       ? h(
           "div",
@@ -1032,7 +1119,7 @@ function textInput(label: string, key: "streamlinkPath" | "playerPath", placehol
   );
 }
 
-type SettingsTab = "general" | "player" | "twitch" | "kick" | "youtube" | "chat";
+type SettingsTab = "general" | "player" | "twitch" | "kick" | "youtube" | "crunchyroll" | "chat";
 
 const SETTINGS_TABS: [SettingsTab, string][] = [
   ["general", "General"],
@@ -1040,6 +1127,7 @@ const SETTINGS_TABS: [SettingsTab, string][] = [
   ["twitch", "Twitch"],
   ["kick", "Kick"],
   ["youtube", "YouTube"],
+  ["crunchyroll", "Crunchyroll"],
   ["chat", "Chat"],
 ];
 
@@ -1217,6 +1305,15 @@ function settingsView(): HTMLElement {
                 ? kickSettings()
                 : state.settingsTab === "youtube"
                   ? [...ytSettings(), h("h2", {}, "Player"), miniPlayerSelect()]
+                  : state.settingsTab === "crunchyroll"
+                  ? [
+                      h("h2", {}, "Crunchyroll"),
+                      checkbox(
+                        "Play episodes in a Crunchyroll window",
+                        "Episodes open in their own window (Microsoft Edge without its address bar) instead of playing in the Crunchyroll tab. Sign in to Crunchyroll there once. Use it if an episode won't play in the tab.",
+                        "crPlayInWindow",
+                      ),
+                    ]
                   : [
               h("h2", {}, "Chat"),
               checkbox("Chat", "Add a Chat button to playing streams.", "chatEnabled"),
@@ -1378,7 +1475,9 @@ function render() {
       ? currentBody
       : state.view === "settings"
         ? settingsView()
-        : state.view === "youtube"
+        : state.view === "crunchyroll"
+          ? crunchyrollView()
+          : state.view === "youtube"
           ? (() => {
               const main = h("main", {}, yt.content(ytCtx));
               main.prepend(ytSubnav());

@@ -104,6 +104,7 @@ fn open_panel(app: &AppHandle, platform: Platform, channel: &str) -> Result<(), 
         false
     });
     window.add_child(builder, position, size).map_err(|e| e.to_string())?;
+    crate::crunchyroll::layout(app);
     Ok(())
 }
 
@@ -113,6 +114,7 @@ pub async fn close_chat(app: AppHandle) -> Result<(), String> {
     if let Some(panel) = app.get_webview(PANEL) {
         panel.close().map_err(|e| e.to_string())?;
     }
+    crate::crunchyroll::layout(&app);
     Ok(())
 }
 
