@@ -1,0 +1,57 @@
+name: Security audit
+
+# Checks StreamHub's Rust and npm dependencies against the RustSec and npm advisory databases.
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - master
+  schedule:
+    - cron: "17 9 * * 1" # Mondays
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: npm audit
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm audit --audit-level=low 2>&1 | tee npm-audit.txt || true
+          npm audit --json > npm-audit.json || true
+
+      - name: cargo audit
+        working-directory: src-tauri
+        run: |
+          cargo generate-lockfile
+          cargo install cargo-audit --locked --quiet
+          cargo audit 2>&1 | tee ../cargo-audit.txt || true
+          cargo audit --json > ../cargo-audit.json || true
+
+      - name: Summary
+        run: |
+          {
+            echo "## npm audit"; echo '```'; tail -n 40 npm-audit.txt; echo '```'
+            echo "## cargo audit"; echo '```'; tail -n 80 cargo-audit.txt; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: security-audit
+          path: |
+            npm-audit.txt
+            npm-audit.json
+            cargo-audit.txt
+            cargo-audit.json
+            package-lock.json
+            src-tauri/Cargo.lock
