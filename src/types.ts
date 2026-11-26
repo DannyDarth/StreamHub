@@ -56,6 +56,8 @@ export interface Settings {
   autoUpdate: boolean;
   /** Where streams play: the user's video player, or StreamHub's own player. */
   playIn: "external" | "app";
+  /** YouTube: what to do with each SponsorBlock category. */
+  sbActions: Record<string, "skip" | "show" | "off">;
 }
 
 export type ChatProvider = "panel" | "browser" | "chatterino";
@@ -77,7 +79,7 @@ export interface LiveStream {
   thumbnail_url: string;
 }
 
-export type Platform = "twitch" | "kick";
+export type Platform = "twitch" | "kick" | "youtube";
 
 /** Sent by the Rust side (kick::KickChannel). */
 export interface KickChannel {

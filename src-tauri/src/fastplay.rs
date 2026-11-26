@@ -393,7 +393,9 @@ fn allowed_video_host(url: &reqwest::Url) -> bool {
             || under("live-video.net")
             || under("kick.com")
             || under("cdn-perfprod.com")
-            || under("luminous.dev"))
+            || under("luminous.dev")
+            || under("googlevideo.com")
+            || under("youtube.com"))
 }
 
 /// The address the in-app player loads a stream URL through.
@@ -523,5 +525,6 @@ mod proxy_tests {
         assert!(ok("https://fa723fc1b171.us-west-2.playback.live-video.net/api/video/v1/x.m3u8"));
         assert!(!ok("https://example.com/x"));
         assert!(!ok("http://usher.ttvnw.net/x"));
+        assert!(ok("https://manifest.googlevideo.com/api/manifest/hls_variant/x/index.m3u8"));
     }
 }

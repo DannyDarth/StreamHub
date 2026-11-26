@@ -6,6 +6,8 @@ mod fastplay;
 mod kick;
 mod streamlink;
 mod updater;
+mod youtube;
+mod ytdlp;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -39,6 +41,7 @@ pub fn run() {
         })
         .manage(streamlink::Streams::default())
         .manage(updater::Update::default())
+        .manage(youtube::YoutubeFetcher::default())
         .manage(kick::KickFetcher::default())
         .invoke_handler(tauri::generate_handler![
             auth::twitch_login,
@@ -59,6 +62,13 @@ pub fn run() {
             updater::update_supported,
             updater::download_update,
             updater::restart_to_update,
+            youtube::yt_account,
+            youtube::yt_feed,
+            youtube::yt_search,
+            youtube::yt_channel,
+            youtube::yt_login,
+            youtube::yt_logout,
+            ytdlp::yt_stream,
         ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Show StreamHub", true, None::<&str>)?;

@@ -1,6 +1,6 @@
 # StreamHub
 
-Ad-free Twitch and Kick streams on Windows, through [Streamlink](https://streamlink.github.io).
+Ad-free Twitch and Kick streams, and YouTube without ads and with SponsorBlock, on Windows.
 
 StreamHub 2 is rebuilt with [Tauri 2](https://tauri.app): a Rust core with a light web UI. StreamHub 1.x (NW.js + Ember) is kept on the [`v1` branch](https://github.com/DannyDarth/StreamHub/tree/v1). The iPhone app is [StreamHub-iOS](https://github.com/DannyDarth/StreamHub-iOS).
 
@@ -29,6 +29,7 @@ StreamHub 2 keeps its own settings: sign in to Twitch (and Kick) again after upg
 - Chat (optional, off by default: Settings → Chat) for Twitch and Kick: in a panel on the right of StreamHub (the sites' own popout chat; sign in there to send messages), your default browser, or Chatterino; optionally opened with the stream
 - Browse and search: top categories and live streams, category pages and channel pages for Twitch and Kick (Kick has no channel search: StreamHub looks up the exact name)
 - Play in StreamHub (beta, Settings → Streamlink → Play streams in): streams play inside StreamHub with the same ad blocking; Back keeps the stream playing in a mini-player while you browse
+- YouTube (beta): sign in on Google's own page to see your subscriptions (new videos and live streams), search and channel pages; videos play in StreamHub's player through [yt-dlp](https://github.com/yt-dlp/yt-dlp) (downloaded and kept up to date by StreamHub, checked against its release checksums) with no ads, and [SponsorBlock](https://sponsor.ajay.app) segments are skipped or marked (Settings → YouTube)
 - Updates: StreamHub downloads new versions and installs them when it restarts or you quit it, after checking the installer against the release's SHA256SUMS.txt (Settings → Updates; the portable build shows a Download banner instead)
 - Settings: theme (dark, light, same as Windows), smoother playback (more buffering), browse language filter, Streamlink path, player, quality, low latency, proxies, VPN mode, backup stream, badge
 - Tray icon (closing the window keeps StreamHub running)
@@ -66,6 +67,7 @@ Tests: `cargo test` in `src-tauri/`, and `pytest plugin/tests` with `STREAMHUB_T
 | `src-tauri/src/streamlink.rs` | Finding Streamlink and the plugin, launching, auto-switching proxies |
 | `src-tauri/src/kick.rs` | Live status of your Kick channels |
 | `src/player.ts` | Play in StreamHub: Streamlink finds the ad-free stream address (`resolve_stream`), hls.js plays it, ads switch proxies |
+| `src-tauri/src/youtube.rs`, `src-tauri/src/ytdlp.rs`, `src/youtube.ts`, `src/sponsorblock.ts` | YouTube: sign-in, feed, search and channels (hidden youtube.com page), playback through yt-dlp, SponsorBlock |
 | `src-tauri/src/chat.rs` | Chat panel (a second webview in the main window), browser, Chatterino |
 | `src-tauri/src/auth.rs` | Twitch sign-in through `http://localhost:65432/redirect` |
 | `src-tauri/src/badge.rs` | Badge window, placed on the player window |

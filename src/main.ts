@@ -21,6 +21,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { checkForUpdate, type Update } from "./updates";
 import * as browse from "./browse";
 import * as player from "./player";
+import * as yt from "./youtube";
+import { CATEGORIES as SB_CATEGORIES } from "./sponsorblock";
 import type {
   AdblockStatus,
   EndedEvent,
@@ -38,7 +40,7 @@ import type {
 const TOKEN_KEY = "streamhub.token";
 const REFRESH_MS = 60_000;
 
-type View = "twitch" | "kick" | "settings";
+type View = "twitch" | "kick" | "youtube" | "settings";
 
 interface Playing {
   platform: Platform;
@@ -69,6 +71,7 @@ const state = {
   kickError: "",
   kickKnown: null as Set<string> | null,
   search: "",
+  ytAccount: null as yt.YtAccount | null,
   update: null as Update | null,
   /** The version downloaded and waiting to install. */
   updateReady: "",
@@ -507,11 +510,11 @@ const ctx: browse.Ctx = {
 };
 
 function searchForm(): HTMLElement {
-  const site: Platform = state.view === "kick" ? "kick" : "twitch";
+  const site: Platform = state.view === "kick" ? "kick" : state.view === "youtube" ? "youtube" : "twitch";
   const input = h("input", {
     id: "search",
     type: "search",
-    placeholder: site === "kick" ? "Search Kick" : "Search Twitch",
+    placeholder: site === "kick" ? "Search Kick" : site === "youtube" ? "Search YouTube" : "Search Twitch",
     spellcheck: "false",
     autocomplete: "off",
     oninput: (e) => (state.search = (e.target as HTMLInputElement).value),
@@ -526,7 +529,8 @@ function searchForm(): HTMLElement {
         const q = state.search.trim();
         if (!q) return;
         state.view = site;
-        if (site === "kick") browse.go("kick", { kind: "search", q });
+        if (site === "youtube") yt.go({ kind: "search", q });
+        else if (site === "kick") browse.go("kick", { kind: "search", q });
         else browse.go("twitch", { kind: "search", q });
         (document.activeElement as HTMLElement | null)?.blur();
         render();
@@ -534,6 +538,129 @@ function searchForm(): HTMLElement {
     },
     input,
   );
+}
+
+// ---- YouTube ----
+
+let ytChecked = false;
+
+async function checkYtAccount() {
+  ytChecked = true;
+  try {
+    state.ytAccount = await invoke<yt.YtAccount>("yt_account");
+  } catch (e) {
+    state.ytAccount = null;
+    if (String(e) !== "not-signed-in") state.error = `Couldn't check your YouTube sign-in: ${String(e)}`;
+  }
+  try {
+    localStorage.setItem("streamhub.youtube.used", "1");
+  } catch {
+    // storage unavailable
+  }
+  render();
+}
+
+async function ytSignIn() {
+  try {
+    await invoke("yt_login");
+    state.message = "Sign in to YouTube in the window that opened, then close it.";
+  } catch (e) {
+    state.error = String(e);
+  }
+  render();
+}
+
+async function ytSignOut() {
+  try {
+    await invoke("yt_logout");
+  } catch (e) {
+    state.error = String(e);
+  }
+  state.ytAccount = null;
+  yt.clearCache();
+  render();
+}
+
+function watchYoutube(v: yt.YtVideo) {
+  state.error = "";
+  for (const [oldId, p] of state.playing) if (p.inApp) state.playing.delete(oldId);
+  const id = player.open("youtube", v.id, v.title);
+  state.playing.set(id, { platform: "youtube", channel: v.title, status: null, inApp: true });
+  render();
+}
+
+const ytCtx: yt.YtCtx = {
+  render: () => render(),
+  account: () => state.ytAccount,
+  signIn: () => void ytSignIn(),
+  watch: (v) => watchYoutube(v),
+};
+
+function ytSubnav(): HTMLElement {
+  const page = yt.page();
+  return h(
+    "div",
+    { class: "subnav" },
+    yt.nav.length > 1 ? h("button", { class: "small", onclick: () => { yt.back(); render(); } }, "‹ Back") : null,
+    h(
+      "button",
+      { class: `sub${page.kind === "subs" ? " active" : ""}`, onclick: () => { yt.go({ kind: "subs" }); render(); } },
+      "Subscriptions",
+    ),
+    h("button", { class: "small push", onclick: () => { yt.refresh(); render(); } }, "Refresh"),
+  );
+}
+
+function ytSettings(): HTMLElement[] {
+  const a = state.ytAccount;
+  return [
+    h("h2", {}, "YouTube"),
+    a
+      ? h(
+          "div",
+          { class: "kick-account" },
+          a.avatar ? h("img", { class: "avatar", src: a.avatar, alt: "", referrerpolicy: "no-referrer" }) : null,
+          h("span", { class: "muted" }, "Signed in to YouTube as "),
+          h("strong", {}, a.name),
+          h("button", { class: "link", onclick: () => void ytSignOut() }, "Sign out"),
+        )
+      : h(
+          "div",
+          { class: "kick-account" },
+          h("button", { class: "yt-signin", onclick: () => void ytSignIn() }, "Sign in to YouTube"),
+          h("span", { class: "muted" }, "to see your subscriptions. You sign in on Google's own page."),
+        ),
+    h("h3", {}, "SponsorBlock"),
+    h("p", { class: "muted" }, "Parts of YouTube videos marked by the SponsorBlock community. Skip them, show them on the timeline, or ignore them."),
+    h(
+      "div",
+      { class: "sb-settings" },
+      ...SB_CATEGORIES.map((c) =>
+        h(
+          "label",
+          { class: "sb-row" },
+          h("span", { class: "sb-swatch", style: `background:${c.color}` }),
+          h("span", {}, c.name),
+          h(
+            "select",
+            {
+              onchange: (e) =>
+                updateSettings({
+                  sbActions: { ...state.settings.sbActions, [c.id]: (e.target as HTMLSelectElement).value as "skip" | "show" | "off" },
+                }),
+            },
+            ...(
+              [
+                ["skip", "Skip"],
+                ["show", "Show on timeline"],
+                ["off", "Off"],
+              ] as const
+            ).map(([value, label]) => h("option", { value, selected: (state.settings.sbActions[c.id] ?? "off") === value }, label)),
+          ),
+        ),
+      ),
+    ),
+  ];
 }
 
 /** Following / Browse (or My channels / Browse) and a back button. */
@@ -583,6 +710,7 @@ function header(): HTMLElement {
           state.view = view;
           // browsing: the stream keeps playing in the corner
           player.minimize();
+          if ((view === "youtube" || view === "settings") && !ytChecked) void checkYtAccount();
           if (view === "settings") void loadInfo();
           render();
         },
@@ -593,7 +721,7 @@ function header(): HTMLElement {
     "header",
     {},
     h("div", { class: "brand" }, h("img", { class: "logo", src: "/icon.png", alt: "" }), "StreamHub"),
-    h("nav", {}, tab("twitch", "Twitch"), tab("kick", "Kick"), tab("settings", "Settings")),
+    h("nav", {}, tab("twitch", "Twitch"), tab("kick", "Kick"), tab("youtube", "YouTube"), tab("settings", "Settings")),
     h("div", { class: "spacer" }),
     searchForm(),
     state.user
@@ -993,6 +1121,8 @@ function settingsView(): HTMLElement {
 
     ...kickSettings(),
 
+    ...ytSettings(),
+
     h("h2", {}, "Browse"),
     select("Stream language", "streamLanguage", LANGUAGES, "Top live streams and categories only show streams in this language."),
 
@@ -1169,7 +1299,13 @@ function render() {
       ? currentBody
       : state.view === "settings"
         ? settingsView()
-        : state.view === "kick"
+        : state.view === "youtube"
+          ? (() => {
+              const main = h("main", {}, yt.content(ytCtx));
+              main.prepend(ytSubnav());
+              return main;
+            })()
+          : state.view === "kick"
           ? withSubnav("kick", browse.kickContent(ctx) ?? kickView())
           : state.user
             ? withSubnav("twitch", browse.twitchContent(ctx) ?? liveView())
@@ -1224,6 +1360,14 @@ window.setInterval(() => {
   void refresh();
   void refreshKick();
 }, REFRESH_MS);
+void listen("youtube-login-closed", async () => {
+  state.message = "";
+  yt.clearCache();
+  await checkYtAccount();
+  if (!state.ytAccount) state.error = "Not signed in to YouTube. Sign in on Google's page, then close the window.";
+  render();
+});
+
 void listen("kick-login-closed", async () => {
   state.message = "";
   kickSignedOut = false;
@@ -1256,6 +1400,11 @@ void start();
 loadKickCache();
 void checkKickAccount();
 void refreshKick();
+try {
+  if (localStorage.getItem("streamhub.youtube.used")) void checkYtAccount();
+} catch {
+  // storage unavailable
+}
 void getVersion().then((v) => {
   state.appVersion = v;
   void checkUpdates();

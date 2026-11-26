@@ -5,12 +5,16 @@
 // Streamlink (with the ad blocking plugin) finds the stream's ad-free HLS address; hls.js plays
 // it. If Twitch puts an ad into the playlist, the player asks Streamlink again with the next
 // proxy; with no proxy left it blacks out and mutes the ad instead of showing it.
+//
+// YouTube: yt-dlp finds the video's stream (no ads: YouTube only adds them in its own player),
+// and SponsorBlock segments are skipped or marked on the timeline.
 
 import Hls from "hls.js";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { h } from "./ui";
 import type { AdblockStatus, Platform, Settings } from "./types";
+import * as sponsorblock from "./sponsorblock";
 
 export interface PlayerCtx {
   settings(): Settings;
@@ -26,7 +30,13 @@ export interface PlayerCtx {
 interface Current {
   id: number;
   platform: Platform;
+  /** Twitch/Kick: the channel; YouTube: the video id. */
   channel: string;
+  /** What the bar shows: the channel, or the video's title. */
+  label: string;
+  /** YouTube: SponsorBlock segments, and the ones the user undid. */
+  segments: sponsorblock.Segment[];
+  undone: Set<string>;
   mode: "full" | "mini";
   status: AdblockStatus | null;
   hls: Hls | null;
@@ -68,7 +78,9 @@ const host = h("div", { id: "player-host" });
 const bar = h("div", { class: "player-bar" });
 const video = h("video", { class: "player-video", controls: true, autoplay: true, playsinline: true });
 const notice = h("div", { class: "player-notice" });
-host.append(bar, h("div", { class: "player-stage" }, video, notice));
+const sbBar = h("div", { class: "sb-bar" });
+const sbToast = h("div", { class: "sb-toast" });
+host.append(bar, h("div", { class: "player-stage" }, video, notice, sbBar, sbToast));
 
 export function init(context: PlayerCtx): void {
   ctx = context;
@@ -101,6 +113,71 @@ export function init(context: PlayerCtx): void {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && fullscreen) void setFullscreen(false);
   });
+  video.addEventListener("timeupdate", checkSegments);
+  video.addEventListener("loadedmetadata", renderSegments);
+  video.addEventListener("durationchange", renderSegments);
+}
+
+// ---- SponsorBlock ----
+
+let toastTimer: number | undefined;
+
+function toast(text: string, undo?: () => void) {
+  window.clearTimeout(toastTimer);
+  sbToast.replaceChildren(h("span", {}, text));
+  if (undo) {
+    sbToast.append(h("button", { class: "link", onclick: () => { undo(); sbToast.classList.remove("visible"); } }, "Undo"));
+  }
+  sbToast.classList.add("visible");
+  toastTimer = window.setTimeout(() => sbToast.classList.remove("visible"), 5000);
+}
+
+function renderSegments() {
+  const d = video.duration;
+  if (!current || !current.segments.length || !Number.isFinite(d) || d <= 0) {
+    sbBar.replaceChildren();
+    return;
+  }
+  sbBar.replaceChildren(
+    ...current.segments.map((s) =>
+      h("span", {
+        class: "sb-mark",
+        title: sponsorblock.categoryName(s.category),
+        style: `left:${(s.start / d) * 100}%;width:${Math.max(0.4, ((s.end - s.start) / d) * 100)}%;background:${sponsorblock.categoryColor(s.category)}`,
+      }),
+    ),
+  );
+}
+
+function checkSegments() {
+  const c = current;
+  if (!c || !c.segments.length || video.seeking) return;
+  const t = video.currentTime;
+  const actions = ctx.settings().sbActions;
+  for (const s of c.segments) {
+    if (t < s.start || t >= s.end - 0.3 || c.undone.has(s.uuid)) continue;
+    if ((actions[s.category] ?? "off") !== "skip") continue;
+    const from = t;
+    video.currentTime = s.end;
+    toast(`Skipped ${sponsorblock.categoryName(s.category).toLowerCase()}`, () => {
+      c.undone.add(s.uuid);
+      video.currentTime = from;
+    });
+    return;
+  }
+}
+
+async function loadSegments(session: Current) {
+  try {
+    const segs = await sponsorblock.segments(session.channel, ctx.settings().sbActions);
+    if (current !== session) return;
+    session.segments = segs;
+    if (session.status) session.status = { ...session.status, detail: `${segs.length} SponsorBlock segment${segs.length === 1 ? "" : "s"}` };
+    renderSegments();
+    renderBar();
+  } catch {
+    // no SponsorBlock: the video still plays
+  }
 }
 
 export function supported(): boolean {
@@ -167,6 +244,26 @@ async function resolve() {
   if (!session || session.resolving) return;
   session.resolving = true;
   setNotice(session.attempt > 0 ? "Switching to another ad-free server…" : "Finding the stream…");
+  if (session.platform === "youtube") {
+    try {
+      const r = await invoke<{ kind: "hls" | "file"; url: string; title: string; channel: string; live: boolean }>("yt_stream", {
+        id: session.channel,
+        quality: ctx.settings().quality,
+      });
+      if (current !== session) return;
+      if (r.title) session.label = r.title;
+      session.status = status("ok", "No ads", r.live ? "Live" : "Loading SponsorBlock…");
+      renderBar();
+      if (r.kind === "file") playFile(r.url);
+      else play(r.url);
+      if (!r.live && session.segments.length === 0) void loadSegments(session);
+    } catch (e) {
+      if (current === session) close(String(e));
+    } finally {
+      session.resolving = false;
+    }
+    return;
+  }
   try {
     const settings = ctx.settings();
     const r = await invoke<Resolved>("resolve_stream", {
@@ -209,6 +306,25 @@ function play(url: string) {
     levelLoadingMaxRetry: 4,
   });
   session.hls = hls;
+  hls.on(Hls.Events.MANIFEST_PARSED, () => {
+    if (current !== session || session.platform !== "youtube" || hls.levels.length < 2) return;
+    // YouTube: the qualities are the master playlist's levels
+    const levels = hls.levels.map((l, i) => {
+      const fps = Number((l as unknown as { frameRate?: number }).frameRate ?? 0);
+      return { i, height: l.height, name: `${l.height}p${fps >= 45 ? Math.round(fps) : ""}` };
+    });
+    levels.sort((a, b) => b.height - a.height);
+    session.qualities = [];
+    for (const l of levels) {
+      if (!session.qualities.some((q) => q.name === l.name)) session.qualities.push({ name: l.name, url: `level:${l.i}` });
+    }
+    const wanted = (session.quality ?? ctx.settings().quality).split(",")[0];
+    const match = wanted === "best" ? session.qualities[0] : session.qualities.find((q) => q.name === wanted || q.name.startsWith(wanted.replace(/p.*/, "p")));
+    const pick = match ?? session.qualities[0];
+    session.quality = pick.name;
+    hls.currentLevel = Number(pick.url.slice(6));
+    renderBar();
+  });
   hls.on(Hls.Events.LEVEL_LOADED, (_event, data) => {
     if (current !== session || session.platform !== "twitch") return;
     const ads = playlistHasAds(data.details);
@@ -256,6 +372,19 @@ function play(url: string) {
   });
 }
 
+/** A single video file (YouTube, when there's no HLS stream). */
+function playFile(url: string) {
+  const session = current;
+  if (!session) return;
+  destroyPlayer();
+  video.src = url;
+  video.addEventListener("playing", () => current === session && setNotice(""), { once: true });
+  video.addEventListener("error", () => current === session && close("The video couldn't be played."), { once: true });
+  void video.play().catch(() => {
+    // autoplay blocked: the user can press play
+  });
+}
+
 /** Close the player, telling the app why (null: stopped by the user). */
 function close(error: string | null) {
   if (!current) return;
@@ -268,13 +397,16 @@ function close(error: string | null) {
   video.removeAttribute("src");
   video.load();
   setNotice("");
+  sbBar.replaceChildren();
+  sbToast.classList.remove("visible");
   layout();
   ctx.closed(id, error);
 }
 
 function chip(status: AdblockStatus | null, platform: Platform): HTMLElement | null {
   if (!status) return platform === "kick" ? h("span", { class: "chip kick" }, "Kick") : h("span", { class: "chip info" }, "Starting…");
-  return h("span", { class: `chip ${status.level}`, title: status.detail }, status.label, status.server ? ` · ${status.server}` : "");
+  const extra = status.server ? ` · ${status.server}` : platform === "youtube" && status.detail ? ` · ${status.detail}` : "";
+  return h("span", { class: `chip ${status.level}`, title: status.detail }, status.label, extra);
 }
 
 function qualitySelect(c: Current): HTMLElement {
@@ -288,6 +420,10 @@ function qualitySelect(c: Current): HTMLElement {
         const q = c.qualities.find((x) => x.name === name);
         if (!q || current !== c) return;
         c.quality = q.name;
+        if (q.url.startsWith("level:") && c.hls) {
+          c.hls.currentLevel = Number(q.url.slice(6));
+          return;
+        }
         setNotice(`Switching to ${q.name}…`);
         play(q.url);
       },
@@ -307,14 +443,18 @@ function renderBar() {
     h("button", { class: cls, title, onclick }, label);
   const items: (Node | null)[] = [
     c.mode === "full" && !fullscreen ? button("‹ Back", "Keep watching in the corner and browse", () => minimize()) : null,
-    h("strong", { class: "player-name" }, c.channel),
+    h("strong", { class: "player-name", title: c.label }, c.label),
     chip(c.status, c.platform),
     h("span", { class: "player-spacer" }),
     c.mode === "mini" ? button("⤢", "Show the stream", () => expand()) : null,
     c.mode === "full" && c.qualities.length > 1 ? qualitySelect(c) : null,
-    c.mode === "full" && ctx.chatEnabled() && !fullscreen ? button("Chat", "Open chat", () => ctx.openChat(c.platform, c.channel)) : null,
+    c.mode === "full" && ctx.chatEnabled() && !fullscreen && c.platform !== "youtube"
+      ? button("Chat", "Open chat", () => ctx.openChat(c.platform, c.channel))
+      : null,
     c.mode === "full" ? button(fullscreen ? "Exit full screen" : "Full screen", "Full screen (Esc to leave)", () => void setFullscreen(!fullscreen)) : null,
-    c.mode === "full" && !fullscreen ? button("Open in player", "Watch in your video player instead", () => toExternal()) : null,
+    c.mode === "full" && !fullscreen && c.platform !== "youtube"
+      ? button("Open in player", "Watch in your video player instead", () => toExternal())
+      : null,
     button(c.mode === "mini" ? "×" : "Stop", "Stop the stream", () => stopCurrent(), "player-btn stop"),
   ];
   bar.replaceChildren(...items.filter((n): n is Node => n !== null));
@@ -341,13 +481,16 @@ async function setFullscreen(on: boolean) {
 let nextId = -1;
 
 /** Start playing a stream in StreamHub (replacing the one playing). Returns its id. */
-export function open(platform: Platform, channel: string): number {
+export function open(platform: Platform, channel: string, label = channel): number {
   if (current) close(null);
   const id = nextId--;
   current = {
     id,
     platform,
     channel,
+    label,
+    segments: [],
+    undone: new Set(),
     mode: "full",
     status: null,
     hls: null,
