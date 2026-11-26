@@ -37,6 +37,21 @@ const DRM_SCRIPT: &str = r#"
       ? Promise.reject(new DOMException("Unsupported keySystem", "NotSupportedError"))
       : eme(keySystem, configs);
 })();
+(() => {
+  // what StreamHub shows when a video stays black: each frame reports its videos and errors to
+  // the top page, which passes them on
+  const report = (data) => { try { window.top.postMessage({ streamhubCr: data }, "*"); } catch (e) {} };
+  const where = location.hostname + location.pathname.slice(0, 40);
+  window.addEventListener("error", (e) => report({ error: where + ": " + (e.message || "error") }));
+  window.addEventListener("unhandledrejection", (e) => report({ error: where + ": " + String(e.reason && e.reason.message || e.reason).slice(0, 120) }));
+  setInterval(() => {
+    const videos = [...document.querySelectorAll("video")];
+    if (!videos.length) return;
+    report({ video: videos.map((v) =>
+      `${where} ${v.videoWidth}x${v.videoHeight} t=${v.currentTime.toFixed(1)} ready=${v.readyState} ${v.paused ? "paused" : "playing"}${v.error ? " error " + v.error.code : ""}${v.mediaKeys ? " keys" : ""}`
+    ).join("; ") });
+  }, 3000);
+})();
 "#;
 
 const SCRIPT: &str = r#"
@@ -79,6 +94,12 @@ const SCRIPT: &str = r#"
       : Promise.resolve("no: EME missing")
     ).then((wv) => signal("drm", { widevine: wv }));
   }, 2500);
+  window.addEventListener("message", (e) => {
+    const d = e.data && e.data.streamhubCr;
+    if (!d) return;
+    if (d.video) signal("drm", { video: d.video });
+    if (d.error) signal("drm", { error: d.error });
+  });
   document.addEventListener("error", (e) => {
     const v = e.target;
     if (v instanceof HTMLMediaElement && v.error) signal("drm", { error: "Video error " + v.error.code + (v.error.message ? ": " + v.error.message : "") });
@@ -102,9 +123,10 @@ struct Tabs {
 pub struct Drm {
     widevine: Option<String>,
     error: Option<String>,
+    video: Option<String>,
 }
 
-static DRM: Mutex<Drm> = Mutex::new(Drm { widevine: None, error: None });
+static DRM: Mutex<Drm> = Mutex::new(Drm { widevine: None, error: None, video: None });
 static TABS: Mutex<Tabs> = Mutex::new(Tabs { list: Vec::new(), active: None });
 static NEXT: AtomicU32 = AtomicU32::new(1);
 static SHOWN: AtomicBool = AtomicBool::new(false);
@@ -212,6 +234,9 @@ fn navigation(app: &AppHandle, id: u32, url: &Url) -> bool {
                 let mut drm = DRM.lock().unwrap();
                 if let Some(widevine) = param("widevine") {
                     drm.widevine = Some(widevine.chars().take(120).collect());
+                }
+                if let Some(video) = param("video") {
+                    drm.video = Some(video.chars().take(300).collect());
                 }
                 if let Some(error) = param("error") {
                     drm.error = Some(error.chars().take(160).collect());

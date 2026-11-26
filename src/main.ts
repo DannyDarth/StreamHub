@@ -523,7 +523,7 @@ interface CrTabs {
   tabs: CrTab[];
   active: number | null;
   fullscreen: boolean;
-  drm?: { widevine: string | null; error: string | null };
+  drm?: { widevine: string | null; error: string | null; video: string | null };
 }
 let crTabs: CrTabs = { tabs: [], active: null, fullscreen: false };
 
@@ -541,13 +541,33 @@ void listen<CrTabs>("crunchyroll-tabs", ({ payload }) => {
   if (state.view === "crunchyroll") render();
 });
 
+let crCopied = false;
+
 /** Whether protected video can play here (shown so a black video can be explained). */
 function crDrmChip(): HTMLElement | null {
   const d = crTabs.drm;
   if (!d || (!d.widevine && !d.error)) return null;
   const ok = d.widevine === "yes" && !d.error;
   const text = d.error ? d.error : d.widevine === "yes" ? "DRM: Widevine OK" : `DRM: Widevine missing (${d.widevine?.replace(/^no: /, "")})`;
-  return h("span", { class: `chip ${ok ? "ok" : "warn"} cr-drm`, title: text }, text);
+  const details = [text, d.video ? `Video: ${d.video}` : "Video: none found yet", d.error ? `Last error: ${d.error}` : ""].filter(Boolean).join("\n");
+  return h(
+    "button",
+    {
+      class: `chip ${ok ? "ok" : "warn"} cr-drm`,
+      title: "Click to copy the details",
+      onclick: () => {
+        void navigator.clipboard.writeText(details).then(() => {
+          crCopied = true;
+          render();
+          setTimeout(() => {
+            crCopied = false;
+            render();
+          }, 4000);
+        }, () => {});
+      },
+    },
+    crCopied ? "Details copied: paste them in the chat" : text,
+  );
 }
 
 /** The Crunchyroll tab: crunchyroll.com itself, in tabs (webviews placed below this bar by the Rust side). */
