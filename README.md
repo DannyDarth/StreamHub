@@ -6,7 +6,7 @@ StreamHub 2 is rebuilt with [Tauri 2](https://tauri.app): a Rust core with a lig
 
 ## Install
 
-Download **StreamHub_…_x64-setup.exe** (installer) or **StreamHub-…-Windows-x64-portable.zip** from the [latest release](https://github.com/DannyDarth/StreamHub/releases/latest). You also need [Streamlink](https://streamlink.github.io/install.html) 8.3 or newer and a video player (VLC by default).
+Download **StreamHub_…_x64-setup.exe** (installer) or **StreamHub-…-Windows-x64-portable.zip** from the [latest release](https://github.com/DannyDarth/StreamHub/releases/latest). You also need [Streamlink](https://streamlink.github.io/install.html) 8.3 or newer for Twitch and Kick, and a video player such as VLC unless you play streams in StreamHub. YouTube needs nothing else.
 
 The installer isn't code-signed yet, so Windows SmartScreen may warn about it: choose **More info → Run anyway**.
 
@@ -18,21 +18,42 @@ StreamHub 2 keeps its own settings: sign in to Twitch (and Kick) again after upg
 - If an ad gets through, StreamHub restarts Streamlink with the next proxy tried first. Each proxy is tried first once.
 - **StreamHub never falls back to Twitch with ads by itself.** Playing directly from Twitch only happens if you turn on **Direct through my VPN**. If the plugin is missing, StreamHub refuses to play instead.
 - **Ad-free backup stream** (optional, off by default): during an ad break, plays a lower-quality ad-free stream instead of pausing.
-- The ad blocking badge shows the status in the corner of the player window.
+- The ad blocking badge shows the status in the corner of the player window. In StreamHub's own player, an ad switches to the next proxy right away.
 
 ## Features
 
-- Twitch sign-in (same Twitch app and redirect as StreamHub 1.x)
-- Followed channels that are live, with live notifications
-- Kick: sign in on kick.com from Settings → Kick (in a StreamHub window; StreamHub never sees your password) to show every channel you follow, plus any channels you add yourself; checked every minute, with live notifications; watch through Streamlink
-- Watching through Streamlink, with the ad blocking above and a status bar per stream
-- Chat (optional, off by default: Settings → Chat) for Twitch and Kick: in a panel on the right of StreamHub (the sites' own popout chat; sign in there to send messages), your default browser, or Chatterino; optionally opened with the stream
-- Browse and search: top categories and live streams, category pages and channel pages for Twitch and Kick (Kick has no channel search: StreamHub looks up the exact name)
-- Play in StreamHub (beta, Settings → Streamlink → Play streams in): streams play inside StreamHub with the same ad blocking; Back keeps the stream playing in a mini-player while you browse
-- YouTube (beta): sign in on Google's own page to see your Home recommendations and subscriptions (grouped by day, loading more as you scroll), search and channel pages; videos play in StreamHub's player through [yt-dlp](https://github.com/yt-dlp/yt-dlp) (downloaded and kept up to date by StreamHub, checked against its release checksums) with no ads, in English instead of dubbed audio (Settings → YouTube → Audio language), and [SponsorBlock](https://sponsor.ajay.app) segments are skipped or marked
-- Updates: StreamHub downloads new versions and installs them when it restarts or you quit it, after checking the installer against the release's SHA256SUMS.txt (Settings → Updates; the portable build shows a Download banner instead)
-- Settings: theme (dark, light, same as Windows), smoother playback (more buffering), browse language filter, Streamlink path, player, quality, low latency, proxies, VPN mode, backup stream, badge
-- Tray icon (closing the window keeps StreamHub running)
+### Twitch
+- Sign in with Twitch (same Twitch app and redirect as StreamHub 1.x) to see the channels you follow that are live, with live notifications
+- Browse and search: top categories and live streams, category pages and channel pages
+- Ad blocking as described above (Settings → Twitch)
+
+### Kick
+- Sign in on kick.com from Settings → Kick, in a StreamHub window (StreamHub never sees your password), to see every channel you follow, plus any channels you add yourself
+- Checked every minute, with live notifications
+- Browse: top categories and live streams, category and channel pages (Kick has no channel search: StreamHub looks up the exact name)
+
+### YouTube (beta)
+- Sign in on Google's own page (StreamHub never sees your password)
+- **Home**: your recommendations. **Subscriptions**: new videos grouped by day (Today, Yesterday, weekdays…), with live streams on top. Both keep loading as you scroll
+- Search videos and channels, and channel pages
+- No ads: videos play in StreamHub's player through [yt-dlp](https://github.com/yt-dlp/yt-dlp), which StreamHub downloads and keeps up to date (checked against its release checksums)
+- [SponsorBlock](https://sponsor.ajay.app) built in: segments are skipped (with Undo) or marked on the timeline, per category (Settings → YouTube)
+- English audio instead of dubs (Settings → YouTube → Audio language, or the audio menu in the player)
+
+### Player
+- Watch in your own player through Streamlink (VLC by default), or **in StreamHub** (beta, Settings → Player → Play streams in) with the same ad blocking, a quality menu and full screen
+- **Small player**: going back to browsing keeps the stream playing in the corner, or turn it off and keep the sound playing or pause (Settings → Player or YouTube)
+- Smoother playback (more buffering) and low latency options
+
+### Chat
+- Optional, off by default (Settings → Chat), for Twitch and Kick
+- In a panel on the right of StreamHub (the sites' own popout chat: sign in there to send messages), your default browser, or Chatterino; optionally opened with the stream
+
+### Settings and updates
+- Settings are split into General, Player, Twitch, Kick, YouTube and Chat
+- Theme: dark, light or the same as Windows; a language filter for browsing
+- Automatic updates (Settings → General): StreamHub downloads new versions and installs them when you close or restart it, after checking the installer against the release's SHA256SUMS.txt. Each step is logged to `%TEMP%\StreamHub-update\update.log`. The portable build shows a Download banner instead
+- Tray icon
 
 Not yet in StreamHub 2: videos and clips (StreamHub 1.x has them).
 
@@ -62,11 +83,13 @@ Tests: `cargo test` in `src-tauri/`, and `pytest plugin/tests` with `STREAMHUB_T
 
 | Path | What |
 | --- | --- |
-| `src/` | UI (TypeScript, no framework): `main.ts`, browse/search/channel pages `browse.ts`, the badge window `badge.ts` |
+| `src/` | UI (TypeScript, no framework): `main.ts` (pages and settings), browse/search/channel pages `browse.ts`, the badge window `badge.ts` |
 | `src-tauri/src/adblock.rs` | Streamlink log parsing, proxy rotation, badge status |
 | `src-tauri/src/streamlink.rs` | Finding Streamlink and the plugin, launching, auto-switching proxies |
-| `src-tauri/src/kick.rs` | Live status of your Kick channels |
-| `src/player.ts` | Play in StreamHub: Streamlink finds the ad-free stream address (`resolve_stream`), hls.js plays it, ads switch proxies |
+| `src-tauri/src/kick.rs` | Kick sign-in, followed channels and browsing (hidden kick.com page) |
+| `src/player.ts` | StreamHub's player: hls.js, quality and audio menus, small player, SponsorBlock; ads switch proxies |
+| `src-tauri/src/fastplay.rs` | Finding the ad-free stream address quickly (all proxies at once), and the local `stream.localhost` proxy the player plays through |
+| `src-tauri/src/updater.rs` | Automatic updates: download, checksum check, running the installer |
 | `src-tauri/src/youtube.rs`, `src-tauri/src/ytdlp.rs`, `src/youtube.ts`, `src/sponsorblock.ts` | YouTube: sign-in, feed, search and channels (hidden youtube.com page), playback through yt-dlp, SponsorBlock |
 | `src-tauri/src/chat.rs` | Chat panel (a second webview in the main window), browser, Chatterino |
 | `src-tauri/src/auth.rs` | Twitch sign-in through `http://localhost:65432/redirect` |
