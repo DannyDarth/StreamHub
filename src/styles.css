@@ -521,3 +521,43 @@ body.player-full { overflow: hidden; }
 }
 .yt-channel, .yt-meta { color: var(--muted); font-size: 13px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .yt-channel.name-link:hover { color: var(--text); }
+
+/* Settings: sections on the left, one at a time */
+.settings { max-width: 1040px; }
+.settings-layout { display: flex; gap: 32px; align-items: flex-start; }
+.settings-nav {
+  position: sticky;
+  top: 72px;
+  flex: none;
+  width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-tab {
+  text-align: left;
+  padding: 10px 14px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+}
+.settings-tab:hover { background: var(--panel-2); color: var(--text); }
+.settings-tab.active { background: var(--panel); color: var(--text); border-left-color: var(--accent); }
+.settings-tab-twitch.active { border-left-color: #9146ff; }
+.settings-tab-kick.active { border-left-color: #53fc18; }
+.settings-tab-youtube.active { border-left-color: #ff0033; }
+.settings-body {
+  flex: 1;
+  min-width: 0;
+  max-width: 720px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 28px 24px;
+}
+.settings-body > h2 { margin: 24px 0 4px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 18px; }
+.settings-body > h2:first-child { border-top: 0; padding-top: 8px; }
+.settings-body .field select, .settings-body .field input[type="text"], .settings-body textarea { background: var(--bg, var(--panel-2)); }

@@ -58,6 +58,7 @@ const state = {
   user: null as TwitchUser | null,
   view: (!savedToken && savedKick.length > 0 ? "kick" : "twitch") as View,
   settings: loadSettings(),
+  settingsTab: "general" as SettingsTab,
   streams: [] as LiveStream[],
   loading: false,
   error: "",
@@ -1031,6 +1032,31 @@ function textInput(label: string, key: "streamlinkPath" | "playerPath", placehol
   );
 }
 
+type SettingsTab = "general" | "player" | "twitch" | "kick" | "youtube" | "chat";
+
+const SETTINGS_TABS: [SettingsTab, string][] = [
+  ["general", "General"],
+  ["player", "Player"],
+  ["twitch", "Twitch"],
+  ["kick", "Kick"],
+  ["youtube", "YouTube"],
+  ["chat", "Chat"],
+];
+
+/** What StreamHub's player does when you go back to browsing (under Player and YouTube). */
+function miniPlayerSelect(): HTMLElement {
+  return select(
+    "Small player",
+    "miniPlayer",
+    [
+      ["corner", "Keep playing in a small player in the corner"],
+      ["audio", "Off: hide the player, keep the sound playing"],
+      ["pause", "Off: hide the player and pause it"],
+    ],
+    "What StreamHub's player does when you go back to browsing. Show, at the top of the page, brings it back.",
+  );
+}
+
 function settingsView(): HTMLElement {
   const s = state.settings;
   const info = state.info;
@@ -1057,144 +1083,168 @@ function settingsView(): HTMLElement {
     "main",
     { class: "settings" },
     h("h1", {}, "Settings"),
-
-    h("h2", {}, "Streamlink"),
     h(
-      "p",
-      { class: "muted" },
-      info?.streamlink ? `Found: ${info.streamlink}` : "Streamlink wasn't found. Install it from streamlink.github.io or set its path.",
-    ),
-    textInput("Streamlink path (optional)", "streamlinkPath", "Found automatically"),
-    textInput("Video player (optional)", "playerPath", "Streamlink's default (VLC)"),
-    h("label", { class: "field" }, h("span", {}, "Quality"), quality),
-    select(
-      "Play streams in",
-      "playIn",
-      [
-        ["external", "My video player (VLC, mpv…)"],
-        ["app", "StreamHub (beta)"],
-      ],
-      "StreamHub (beta): streams play inside StreamHub, with the same ad blocking.",
-    ),
-    select(
-      "When you go back to browsing",
-      "miniPlayer",
-      [
-        ["corner", "Keep playing in a small player in the corner"],
-        ["audio", "Hide the player, keep the sound playing"],
-        ["pause", "Hide the player and pause it"],
-      ],
-      "For StreamHub's player. Show, at the top of the page, brings it back.",
-    ),
-    checkbox("Low latency", "Smaller delay, may buffer more often (Twitch).", "lowLatency"),
-    select(
-      "Smoother playback",
-      "buffer",
-      [
-        ["normal", "Normal"],
-        ["more", "More buffer (fewer stutters, a few seconds behind)"],
-        ["most", "Most buffer (for unsteady connections)"],
-      ],
-      "Keeps more video buffered so short hiccups don't stutter. Not used with low latency.",
-    ),
-
-    h("h2", {}, "Twitch ad blocking"),
-    h(
-      "p",
-      { class: "muted" },
-      info?.plugin
-        ? `Plugin: ${info.plugin}${info.bundledPlugin ? " (bundled)" : ""}`
-        : "The ad blocking plugin wasn't found. StreamHub won't play Twitch streams while it's missing.",
-    ),
-    checkbox("Block ads", "Play Twitch streams through ad-free proxies. If an ad gets through, StreamHub switches to the next proxy.", "proxyEnabled"),
-    !s.proxyEnabled ? h("p", { class: "warning" }, "Ad blocking is off: Twitch streams will show ads.") : null,
-    h("label", { class: "field" }, h("span", {}, "Proxies, one per line (empty: defaults)"), proxies),
-    checkbox(
-      "Direct through my VPN",
-      "If no proxy works, play from Twitch directly. Only turn this on while a VPN in an ad-free country is connected.",
-      "direct",
-    ),
-    checkbox(
-      "Ad-free backup stream",
-      "During an ad break, play a lower quality (usually 360p) ad-free stream instead of pausing. Needs the bundled plugin.",
-      "backupStream",
-    ),
-    checkbox("Ad blocking badge", "Show the status in the corner of the player.", "badge"),
-
-    h("h2", {}, "Chat"),
-    checkbox("Chat", "Add a Chat button to playing streams.", "chatEnabled"),
-    !s.chatEnabled
-      ? null
-      : h(
-      "label",
-      { class: "field" },
-      h("span", {}, "Open chat in"),
+      "div",
+      { class: "settings-layout" },
       h(
-        "select",
-        {
-          onchange: (e) =>
-            updateSettings({ chatProvider: (e.target as HTMLSelectElement).value as Settings["chatProvider"] }),
-        },
-        ...(
-          [
-            ["panel", "StreamHub (right side)"],
-            ["browser", "My default browser"],
-            ["chatterino", "Chatterino (Twitch; Kick chat stays in StreamHub)"],
-          ] as const
-        ).map(([value, label]) => h("option", { value, selected: s.chatProvider === value }, label)),
+        "nav",
+        { class: "settings-nav" },
+        ...SETTINGS_TABS.map(([tab, label]) =>
+          h(
+            "button",
+            {
+              class: `settings-tab settings-tab-${tab}${state.settingsTab === tab ? " active" : ""}`,
+              onclick: () => {
+                state.settingsTab = tab;
+                render();
+              },
+            },
+            label,
+          ),
+        ),
       ),
-    ),
-    s.chatEnabled
-      ? checkbox("Open chat with the stream", "Open the channel's chat when a stream starts.", "chatAutoOpen")
-      : null,
-
-    ...kickSettings(),
-
-    ...ytSettings(),
-
-    h("h2", {}, "Browse"),
-    select("Stream language", "streamLanguage", LANGUAGES, "Top live streams and categories only show streams in this language."),
-
-    h("h2", {}, "Updates"),
-    checkbox("Check for updates", "Look for a new StreamHub version on GitHub when StreamHub starts and every few hours.", "checkUpdates"),
-    checkbox(
-      "Install updates automatically",
-      "Download new versions in the background and install them when StreamHub restarts or you quit it. Not for the portable build.",
-      "autoUpdate",
-    ),
-    h(
-      "p",
-      {},
-      h("button", { class: "small", onclick: () => void checkUpdates(true) }, "Check now"),
-      state.appVersion ? h("span", { class: "muted" }, `  You have StreamHub ${state.appVersion}.`) : null,
-    ),
-
-    h("h2", {}, "Appearance"),
-    select("Theme", "theme", [
-      ["dark", "Dark"],
-      ["light", "Light"],
-      ["system", "Same as Windows"],
-    ]),
-
-    h("h2", {}, "Notifications"),
-    checkbox("Live notifications", "Notify me when a Twitch channel I follow or one of my Kick channels goes live.", "notifications"),
-
-    h(
-      "p",
-      {},
       h(
-        "button",
-        {
-          class: "link",
-          onclick: () => {
-            state.settings = { ...DEFAULTS };
-            saveSettings(state.settings);
-            applyTheme(state.settings.theme);
-            browse.clearCache();
-            render();
-          },
-        },
-        "Reset settings",
+        "div",
+        { class: "settings-body" },
+        ...(state.settingsTab === "general"
+          ? [
+          h("h2", {}, "Appearance"),
+          select("Theme", "theme", [
+            ["dark", "Dark"],
+            ["light", "Light"],
+            ["system", "Same as Windows"],
+          ]),
+
+          h("h2", {}, "Browse"),
+          select("Stream language", "streamLanguage", LANGUAGES, "Top live streams and categories only show streams in this language."),
+
+          h("h2", {}, "Notifications"),
+          checkbox("Live notifications", "Notify me when a Twitch channel I follow or one of my Kick channels goes live.", "notifications"),
+
+          h("h2", {}, "Updates"),
+          checkbox("Check for updates", "Look for a new StreamHub version on GitHub when StreamHub starts and every few hours.", "checkUpdates"),
+          checkbox(
+            "Install updates automatically",
+            "Download new versions in the background and install them when StreamHub restarts or you quit it. Not for the portable build.",
+            "autoUpdate",
+          ),
+          h(
+            "p",
+            {},
+            h("button", { class: "small", onclick: () => void checkUpdates(true) }, "Check now"),
+            state.appVersion ? h("span", { class: "muted" }, `  You have StreamHub ${state.appVersion}.`) : null,
+          ),
+
+          h(
+            "p",
+            {},
+            h(
+              "button",
+              {
+                class: "link",
+                onclick: () => {
+                  state.settings = { ...DEFAULTS };
+                  saveSettings(state.settings);
+                  applyTheme(state.settings.theme);
+                  browse.clearCache();
+                  render();
+                },
+              },
+              "Reset settings",
+            ),
+          ),
+            ]
+          : state.settingsTab === "player"
+            ? [
+                h("h2", {}, "Player"),
+            select(
+              "Play streams in",
+              "playIn",
+              [
+                ["external", "My video player (VLC, mpv…)"],
+                ["app", "StreamHub (beta)"],
+              ],
+              "StreamHub (beta): streams play inside StreamHub, with the same ad blocking.",
+            ),
+                miniPlayerSelect(),
+            h("h2", {}, "Streamlink"),
+            h(
+              "p",
+              { class: "muted" },
+              info?.streamlink ? `Found: ${info.streamlink}` : "Streamlink wasn't found. Install it from streamlink.github.io or set its path.",
+            ),
+            textInput("Streamlink path (optional)", "streamlinkPath", "Found automatically"),
+            textInput("Video player (optional)", "playerPath", "Streamlink's default (VLC)"),
+            h("label", { class: "field" }, h("span", {}, "Quality"), quality),
+            checkbox("Low latency", "Smaller delay, may buffer more often (Twitch).", "lowLatency"),
+            select(
+              "Smoother playback",
+              "buffer",
+              [
+                ["normal", "Normal"],
+                ["more", "More buffer (fewer stutters, a few seconds behind)"],
+                ["most", "Most buffer (for unsteady connections)"],
+              ],
+              "Keeps more video buffered so short hiccups don't stutter. Not used with low latency.",
+            ),
+              ]
+            : state.settingsTab === "twitch"
+              ? [
+            h("h2", {}, "Twitch ad blocking"),
+            h(
+              "p",
+              { class: "muted" },
+              info?.plugin
+                ? `Plugin: ${info.plugin}${info.bundledPlugin ? " (bundled)" : ""}`
+                : "The ad blocking plugin wasn't found. StreamHub won't play Twitch streams while it's missing.",
+            ),
+            checkbox("Block ads", "Play Twitch streams through ad-free proxies. If an ad gets through, StreamHub switches to the next proxy.", "proxyEnabled"),
+            !s.proxyEnabled ? h("p", { class: "warning" }, "Ad blocking is off: Twitch streams will show ads.") : null,
+            h("label", { class: "field" }, h("span", {}, "Proxies, one per line (empty: defaults)"), proxies),
+            checkbox(
+              "Direct through my VPN",
+              "If no proxy works, play from Twitch directly. Only turn this on while a VPN in an ad-free country is connected.",
+              "direct",
+            ),
+            checkbox(
+              "Ad-free backup stream",
+              "During an ad break, play a lower quality (usually 360p) ad-free stream instead of pausing. Needs the bundled plugin.",
+              "backupStream",
+            ),
+            checkbox("Ad blocking badge", "Show the status in the corner of the player.", "badge"),
+                ]
+              : state.settingsTab === "kick"
+                ? kickSettings()
+                : state.settingsTab === "youtube"
+                  ? [...ytSettings(), h("h2", {}, "Player"), miniPlayerSelect()]
+                  : [
+              h("h2", {}, "Chat"),
+              checkbox("Chat", "Add a Chat button to playing streams.", "chatEnabled"),
+              !s.chatEnabled
+                ? null
+                : h(
+                "label",
+                { class: "field" },
+                h("span", {}, "Open chat in"),
+                h(
+                  "select",
+                  {
+                    onchange: (e) =>
+                      updateSettings({ chatProvider: (e.target as HTMLSelectElement).value as Settings["chatProvider"] }),
+                  },
+                  ...(
+                    [
+                      ["panel", "StreamHub (right side)"],
+                      ["browser", "My default browser"],
+                      ["chatterino", "Chatterino (Twitch; Kick chat stays in StreamHub)"],
+                    ] as const
+                  ).map(([value, label]) => h("option", { value, selected: s.chatProvider === value }, label)),
+                ),
+              ),
+              s.chatEnabled
+                ? checkbox("Open chat with the stream", "Open the channel's chat when a stream starts.", "chatAutoOpen")
+                : null,
+                    ]),
       ),
     ),
   );
