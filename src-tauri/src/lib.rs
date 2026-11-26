@@ -65,6 +65,7 @@ pub fn run() {
             crunchyroll::cr_new_tab,
             crunchyroll::cr_select,
             crunchyroll::cr_close_tab,
+            crunchyroll::cr_episodes_in_window,
             open_release_page,
             updater::update_supported,
             updater::download_update,

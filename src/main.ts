@@ -459,6 +459,7 @@ function updateSettings(patch: Partial<Settings>) {
   saveSettings(state.settings);
   if (patch.theme) applyTheme(state.settings.theme);
   if (patch.streamLanguage !== undefined) browse.clearCache();
+  if (patch.crEpisodesInWindow !== undefined) void invoke("cr_episodes_in_window", { on: patch.crEpisodesInWindow });
 }
 
 function select<K extends "theme" | "buffer" | "streamLanguage" | "chatProvider" | "playIn" | "audioLanguage" | "miniPlayer">(
@@ -536,6 +537,9 @@ function crCall(command: string, args: Record<string, unknown> = {}) {
     .catch((e) => crError(e));
 }
 
+void invoke("cr_episodes_in_window", { on: state.settings.crEpisodesInWindow ?? true }).catch(() => {});
+void listen<string>("crunchyroll-error", ({ payload }) => crError(payload));
+
 void listen<CrTabs>("crunchyroll-tabs", ({ payload }) => {
   crTabs = payload;
   if (state.view === "crunchyroll") render();
@@ -601,6 +605,7 @@ function crunchyrollView(): HTMLElement {
         h("button", { class: "small cr-new", title: "New tab (or Ctrl+click / middle-click a link)", onclick: () => crCall("cr_new_tab") }, "+"),
       ),
       crDrmChip(),
+      h("button", { class: "small", title: "Open this page in a Crunchyroll window, where episodes play", onclick: action("window") }, "Open in window"),
       h("button", { class: "small", title: "Open this page in your browser", onclick: action("browser") }, "Open in browser"),
       h("button", { class: "small", onclick: action("fullscreen") }, "Full screen"),
     ),
@@ -1140,7 +1145,7 @@ function textInput(label: string, key: "streamlinkPath" | "playerPath", placehol
   );
 }
 
-type SettingsTab = "general" | "player" | "twitch" | "kick" | "youtube" | "chat";
+type SettingsTab = "general" | "player" | "twitch" | "kick" | "youtube" | "crunchyroll" | "chat";
 
 const SETTINGS_TABS: [SettingsTab, string][] = [
   ["general", "General"],
@@ -1148,6 +1153,7 @@ const SETTINGS_TABS: [SettingsTab, string][] = [
   ["twitch", "Twitch"],
   ["kick", "Kick"],
   ["youtube", "YouTube"],
+  ["crunchyroll", "Crunchyroll"],
   ["chat", "Chat"],
 ];
 
@@ -1325,6 +1331,15 @@ function settingsView(): HTMLElement {
                 ? kickSettings()
                 : state.settingsTab === "youtube"
                   ? [...ytSettings(), h("h2", {}, "Player"), miniPlayerSelect()]
+                  : state.settingsTab === "crunchyroll"
+                  ? [
+                      h("h2", {}, "Crunchyroll"),
+                      checkbox(
+                        "Play episodes in a Crunchyroll window",
+                        "Episodes open in their own window (Microsoft Edge without its address bar), where Crunchyroll's player works. Sign in to Crunchyroll there once. Off: episodes play in the Crunchyroll tab (beta: the video may stay black).",
+                        "crEpisodesInWindow",
+                      ),
+                    ]
                   : [
               h("h2", {}, "Chat"),
               checkbox("Chat", "Add a Chat button to playing streams.", "chatEnabled"),

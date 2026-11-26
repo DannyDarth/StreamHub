@@ -104,6 +104,26 @@ const SCRIPT: &str = r#"
   };
   window.addEventListener("click", open, true);
   window.addEventListener("auxclick", open, true);
+  // episodes open in the Crunchyroll window (Settings): links, and the site's own page changes
+  const isEpisode = (href) => { try { return new URL(href, location.href).pathname.split("/").includes("watch"); } catch (e) { return false; } };
+  window.addEventListener("click", (e) => {
+    if (!window.__streamhubEpisodesInWindow || e.defaultPrevented) return;
+    const a = e.target instanceof Element ? e.target.closest("a[href]") : null;
+    if (!a || !isEpisode(a.href)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    signal("episode", { u: a.href });
+  }, true);
+  for (const name of ["pushState", "replaceState"]) {
+    const original = history[name];
+    history[name] = function (state, title, url) {
+      if (window.__streamhubEpisodesInWindow && url && isEpisode(url) && !isEpisode(location.href)) {
+        signal("episode", { u: new URL(url, location.href).href });
+        return;
+      }
+      return original.apply(this, arguments);
+    };
+  }
   // what StreamHub shows when a video stays black: is Widevine there, and did the video fail?
   const config = [{
     initDataTypes: ["cenc"],
@@ -152,6 +172,9 @@ static DRM: Mutex<Drm> = Mutex::new(Drm { widevine: None, error: None, video: No
 static TABS: Mutex<Tabs> = Mutex::new(Tabs { list: Vec::new(), active: None });
 static NEXT: AtomicU32 = AtomicU32::new(1);
 static SHOWN: AtomicBool = AtomicBool::new(false);
+/// Episodes open in a Crunchyroll window (Microsoft Edge's app mode, where Crunchyroll's player
+/// works) instead of the tab.
+static EPISODES_IN_WINDOW: AtomicBool = AtomicBool::new(true);
 static FULLSCREEN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Serialize)]
@@ -270,6 +293,13 @@ fn navigation(app: &AppHandle, id: u32, url: &Url) -> bool {
                 drop(drm);
                 changed(app);
             }
+            "/episode" => {
+                if let Some(link) = param("u").and_then(|u| u.parse::<Url>().ok()) {
+                    if let Err(e) = open_window(&link) {
+                        let _ = app.emit("crunchyroll-error", e);
+                    }
+                }
+            }
             "/newtab" => {
                 if let Some(link) = param("u").and_then(|u| u.parse::<Url>().ok()) {
                     if allowed(&link) {
@@ -287,12 +317,62 @@ fn navigation(app: &AppHandle, id: u32, url: &Url) -> bool {
         return false;
     }
     if allowed(url) {
+        if EPISODES_IN_WINDOW.load(Ordering::SeqCst) && is_episode(url) {
+            if let Err(e) = open_window(url) {
+                let _ = app.emit("crunchyroll-error", e);
+            }
+            return false;
+        }
         return true;
     }
     if url.scheme() == "https" || url.scheme() == "http" {
         let _ = app.opener().open_url(url.as_str(), None::<&str>);
     }
     false
+}
+
+/// An episode or movie page: crunchyroll.com/watch/… (with or without a language prefix).
+fn is_episode(url: &Url) -> bool {
+    matches!(url.host_str(), Some("www.crunchyroll.com" | "crunchyroll.com"))
+        && url.path_segments().is_some_and(|mut parts| parts.any(|p| p == "watch"))
+}
+
+fn find_edge() -> Option<std::path::PathBuf> {
+    ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(|base| std::path::Path::new(&base).join("Microsoft\\Edge\\Application\\msedge.exe"))
+        .find(|path| path.is_file())
+}
+
+/// Open a Crunchyroll page in a Crunchyroll window: Microsoft Edge in app mode (no address bar or
+/// tabs), signed in with Edge's own Crunchyroll sign-in.
+fn open_window(url: &Url) -> Result<(), String> {
+    if !allowed(url) {
+        return Err("Only Crunchyroll pages open in the Crunchyroll window".into());
+    }
+    let edge = find_edge().ok_or("Microsoft Edge wasn't found, so the Crunchyroll window can't open")?;
+    let mut command = std::process::Command::new(edge);
+    command.arg(format!("--app={url}")).arg("--start-maximized");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    command.spawn().map(|_| ()).map_err(|e| format!("Couldn't open the Crunchyroll window: {e}"))
+}
+
+/// Where episodes play: true for the Crunchyroll window, false for the tab (beta).
+#[tauri::command]
+pub async fn cr_episodes_in_window(app: AppHandle, on: bool) -> Result<(), String> {
+    EPISODES_IN_WINDOW.store(on, Ordering::SeqCst);
+    let ids: Vec<u32> = TABS.lock().unwrap().list.iter().map(|t| t.id).collect();
+    for id in ids {
+        if let Some(page) = app.get_webview(&label(id)) {
+            let _ = page.eval(&format!("window.__streamhubEpisodesInWindow = {on};"));
+        }
+    }
+    Ok(())
 }
 
 fn new_tab(app: &AppHandle, url: Url) -> Result<u32, String> {
@@ -304,7 +384,10 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<u32, String> {
     let nav_app = app.clone();
     let builder = WebviewBuilder::new(label(id), WebviewUrl::External(url))
         .initialization_script_for_all_frames(DRM_SCRIPT)
-        .initialization_script(SCRIPT)
+        .initialization_script(&format!(
+            "window.__streamhubEpisodesInWindow = {};\n{SCRIPT}",
+            EPISODES_IN_WINDOW.load(Ordering::SeqCst)
+        ))
         .on_navigation(move |url| navigation(&nav_app, id, url));
     // created where it shows (one created off-screen stayed white until it navigated again)
     let (top, width, height) = shown_bounds(app).ok_or("Couldn't size the Crunchyroll page")?;
@@ -409,6 +492,10 @@ pub async fn cr_action(app: AppHandle, action: String) -> Result<(), String> {
         "forward" => page.eval("history.forward()").map_err(|e| e.to_string()),
         "reload" => page.eval("location.reload()").map_err(|e| e.to_string()),
         "home" => page.navigate(HOME.parse().map_err(|e| format!("{e}"))?).map_err(|e| e.to_string()),
+        "window" => {
+            let url = page.url().map_err(|e| e.to_string())?;
+            open_window(&url)
+        }
         "browser" => {
             let url = page.url().map_err(|e| e.to_string())?;
             if !allowed(&url) {
@@ -437,5 +524,13 @@ mod tests {
         assert!(!ok("https://evilcrunchyroll.com/"));
         assert!(!ok("https://crunchyroll.com.example.com/"));
         assert!(!ok("https://example.com/"));
+    }
+
+    #[test]
+    fn episodes() {
+        assert!(is_episode(&"https://www.crunchyroll.com/watch/GR3VWXP96/abc".parse().unwrap()));
+        assert!(is_episode(&"https://www.crunchyroll.com/de/watch/GR3VWXP96/abc".parse().unwrap()));
+        assert!(!is_episode(&"https://www.crunchyroll.com/series/GY5P48XEY/abc".parse().unwrap()));
+        assert!(!is_episode(&"https://sso.crunchyroll.com/watch".parse().unwrap()));
     }
 }
