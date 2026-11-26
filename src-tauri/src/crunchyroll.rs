@@ -25,7 +25,7 @@ const MAX_TABS: usize = 8;
 /// clears. Unlike a navigation, that never interrupts the page or its player.
 const MARK: &str = "streamhub-";
 
-const SCRIPT: &str = r#"
+const SCRIPT: &str = r##"
 (() => {
   if (window.top !== window) return;
   const replace = history.replaceState.bind(history);
@@ -65,7 +65,7 @@ const SCRIPT: &str = r#"
     return push(state, title, url);
   };
 })();
-"#;
+"##;
 
 #[derive(Clone, Serialize)]
 pub struct Tab {
@@ -78,7 +78,10 @@ struct Tabs {
     active: Option<u32>,
 }
 
-static TABS: Mutex<Tabs> = Mutex::new(Tabs { list: Vec::new(), active: None });
+static TABS: Mutex<Tabs> = Mutex::new(Tabs {
+    list: Vec::new(),
+    active: None,
+});
 static NEXT: AtomicU32 = AtomicU32::new(1);
 static SHOWN: AtomicBool = AtomicBool::new(false);
 /// Episodes open in a Crunchyroll window (Microsoft Edge's app mode, where Crunchyroll's player
@@ -119,7 +122,9 @@ pub fn allowed(url: &Url) -> bool {
     if url.scheme() != "https" {
         return false;
     }
-    let Some(host) = url.host_str() else { return false };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
     let under = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
     under("crunchyroll.com") || host == "accounts.google.com" || host == "appleid.apple.com"
 }
@@ -127,25 +132,47 @@ pub fn allowed(url: &Url) -> bool {
 /// Where the shown tab goes: below the tab bar (or the whole window in full screen).
 fn shown_bounds(app: &AppHandle) -> Option<(f64, f64, f64)> {
     let window = app.get_window("main")?;
-    let size = window.inner_size().ok()?.to_logical::<f64>(window.scale_factor().ok()?);
+    let size = window
+        .inner_size()
+        .ok()?
+        .to_logical::<f64>(window.scale_factor().ok()?);
     let fullscreen = FULLSCREEN.load(Ordering::SeqCst);
-    let right = if !fullscreen && app.get_webview(chat::PANEL).is_some() { chat::PANEL_WIDTH } else { 0.0 };
-    let (top, width) = if fullscreen { (0.0, size.width) } else { (TOP, (size.width - right).max(0.0)) };
+    let right = if !fullscreen && app.get_webview(chat::PANEL).is_some() {
+        chat::PANEL_WIDTH
+    } else {
+        0.0
+    };
+    let (top, width) = if fullscreen {
+        (0.0, size.width)
+    } else {
+        (TOP, (size.width - right).max(0.0))
+    };
     Some((top, width, (size.height - top).max(0.0)))
 }
 
 /// Place every tab: the active one below the tab bar (or the whole window in full screen), the
 /// others off-screen, where they keep playing.
 pub fn layout(app: &AppHandle) {
-    let Some((top, width, height)) = shown_bounds(app) else { return };
+    let Some((top, width, height)) = shown_bounds(app) else {
+        return;
+    };
     let (ids, active) = {
         let tabs = TABS.lock().unwrap();
-        (tabs.list.iter().map(|t| t.id).collect::<Vec<_>>(), tabs.active)
+        (
+            tabs.list.iter().map(|t| t.id).collect::<Vec<_>>(),
+            tabs.active,
+        )
     };
     let shown = SHOWN.load(Ordering::SeqCst);
     for id in ids {
-        let Some(page) = app.get_webview(&label(id)) else { continue };
-        let x = if shown && Some(id) == active { 0.0 } else { -(width + 10_000.0) };
+        let Some(page) = app.get_webview(&label(id)) else {
+            continue;
+        };
+        let x = if shown && Some(id) == active {
+            0.0
+        } else {
+            -(width + 10_000.0)
+        };
         let _ = page.set_position(LogicalPosition::new(x, top));
         let _ = page.set_size(LogicalSize::new(width, height));
     }
@@ -189,13 +216,18 @@ fn navigation(app: &AppHandle, url: &Url) -> bool {
 /// A tab's name from its address: the show or episode name in Crunchyroll's links
 /// (/series/ID/the-apothecary-diaries), else the section (Home, Simulcasts…).
 fn title_from(url: &Url) -> String {
-    let parts: Vec<&str> = url.path_segments().map(|p| p.filter(|s| !s.is_empty()).collect()).unwrap_or_default();
+    let parts: Vec<&str> = url
+        .path_segments()
+        .map(|p| p.filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default();
     let words = |slug: &str| {
         slug.split('-')
             .filter(|w| !w.is_empty())
             .map(|w| {
                 let mut c = w.chars();
-                c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+                c.next()
+                    .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+                    .unwrap_or_default()
             })
             .collect::<Vec<_>>()
             .join(" ")
@@ -217,14 +249,22 @@ fn watch_tab(app: AppHandle, id: u32) {
         let mut last = String::new();
         loop {
             tokio::time::sleep(Duration::from_millis(250)).await;
-            let Some(page) = app.get_webview(&label(id)) else { break };
+            let Some(page) = app.get_webview(&label(id)) else {
+                break;
+            };
             let Ok(url) = page.url() else { continue };
             if let Some(tag) = url.fragment().and_then(|f| f.strip_prefix(MARK)) {
                 let tag = tag.to_string();
-                let _ = page.eval("history.replaceState(history.state, '', location.pathname + location.search)");
+                let _ = page.eval(
+                    "history.replaceState(history.state, '', location.pathname + location.search)",
+                );
                 let link = |prefix: &str| {
                     tag.strip_prefix(prefix)
-                        .and_then(|u| url::form_urlencoded::parse(format!("u={u}").as_bytes()).next().map(|(_, v)| v.into_owned()))
+                        .and_then(|u| {
+                            url::form_urlencoded::parse(format!("u={u}").as_bytes())
+                                .next()
+                                .map(|(_, v)| v.into_owned())
+                        })
                         .and_then(|u| u.parse::<Url>().ok())
                 };
                 if tag == "fs1" || tag == "fs0" {
@@ -258,8 +298,12 @@ fn watch_tab(app: AppHandle, id: u32) {
 
 /// An episode or movie page: crunchyroll.com/watch/… (with or without a language prefix).
 fn is_episode(url: &Url) -> bool {
-    matches!(url.host_str(), Some("www.crunchyroll.com" | "crunchyroll.com"))
-        && url.path_segments().is_some_and(|mut parts| parts.any(|p| p == "watch"))
+    matches!(
+        url.host_str(),
+        Some("www.crunchyroll.com" | "crunchyroll.com")
+    ) && url
+        .path_segments()
+        .is_some_and(|mut parts| parts.any(|p| p == "watch"))
 }
 
 fn find_edge() -> Option<std::path::PathBuf> {
@@ -276,7 +320,8 @@ fn open_window(url: &Url) -> Result<(), String> {
     if !allowed(url) {
         return Err("Only Crunchyroll pages open in the Crunchyroll window".into());
     }
-    let edge = find_edge().ok_or("Microsoft Edge wasn't found, so the Crunchyroll window can't open")?;
+    let edge =
+        find_edge().ok_or("Microsoft Edge wasn't found, so the Crunchyroll window can't open")?;
     let mut command = std::process::Command::new(edge);
     command.arg(format!("--app={url}")).arg("--start-maximized");
     #[cfg(windows)]
@@ -284,7 +329,10 @@ fn open_window(url: &Url) -> Result<(), String> {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
     }
-    command.spawn().map(|_| ()).map_err(|e| format!("Couldn't open the Crunchyroll window: {e}"))
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Couldn't open the Crunchyroll window: {e}"))
 }
 
 /// Where episodes play: true for the Crunchyroll window, false for the tab (beta).
@@ -302,9 +350,13 @@ pub async fn cr_episodes_in_window(app: AppHandle, on: bool) -> Result<(), Strin
 
 fn new_tab(app: &AppHandle, url: Url) -> Result<u32, String> {
     if TABS.lock().unwrap().list.len() >= MAX_TABS {
-        return Err(format!("Up to {MAX_TABS} Crunchyroll tabs. Close one first."));
+        return Err(format!(
+            "Up to {MAX_TABS} Crunchyroll tabs. Close one first."
+        ));
     }
-    let window = app.get_window("main").ok_or("StreamHub's window is missing")?;
+    let window = app
+        .get_window("main")
+        .ok_or("StreamHub's window is missing")?;
     let id = NEXT.fetch_add(1, Ordering::SeqCst);
     let nav_app = app.clone();
     let builder = WebviewBuilder::new(label(id), WebviewUrl::External(url))
@@ -316,11 +368,18 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<u32, String> {
     // created where it shows (one created off-screen stayed white until it navigated again)
     let (top, width, height) = shown_bounds(app).ok_or("Couldn't size the Crunchyroll page")?;
     window
-        .add_child(builder, LogicalPosition::new(0.0, top), LogicalSize::new(width, height))
+        .add_child(
+            builder,
+            LogicalPosition::new(0.0, top),
+            LogicalSize::new(width, height),
+        )
         .map_err(|e| e.to_string())?;
     {
         let mut tabs = TABS.lock().unwrap();
-        tabs.list.push(Tab { id, title: "Crunchyroll".into() });
+        tabs.list.push(Tab {
+            id,
+            title: "Crunchyroll".into(),
+        });
         tabs.active = Some(id);
     }
     SHOWN.store(true, Ordering::SeqCst);
@@ -377,10 +436,16 @@ pub async fn cr_select(app: AppHandle, id: u32) -> Result<TabsEvent, String> {
 pub async fn cr_close_tab(app: AppHandle, id: u32) -> Result<TabsEvent, String> {
     {
         let mut tabs = TABS.lock().unwrap();
-        let Some(index) = tabs.list.iter().position(|t| t.id == id) else { return Ok(snapshot_locked(&tabs)) };
+        let Some(index) = tabs.list.iter().position(|t| t.id == id) else {
+            return Ok(snapshot_locked(&tabs));
+        };
         tabs.list.remove(index);
         if tabs.active == Some(id) {
-            tabs.active = tabs.list.get(index).or_else(|| tabs.list.last()).map(|t| t.id);
+            tabs.active = tabs
+                .list
+                .get(index)
+                .or_else(|| tabs.list.last())
+                .map(|t| t.id);
         }
     }
     if let Some(page) = app.get_webview(&label(id)) {
@@ -409,13 +474,21 @@ pub async fn cr_action(app: AppHandle, action: String) -> Result<(), String> {
         set_fullscreen(&app, !FULLSCREEN.load(Ordering::SeqCst));
         return Ok(());
     }
-    let active = TABS.lock().unwrap().active.ok_or("No Crunchyroll tab is open")?;
-    let page = app.get_webview(&label(active)).ok_or("That tab is closed")?;
+    let active = TABS
+        .lock()
+        .unwrap()
+        .active
+        .ok_or("No Crunchyroll tab is open")?;
+    let page = app
+        .get_webview(&label(active))
+        .ok_or("That tab is closed")?;
     match action.as_str() {
         "back" => page.eval("history.back()").map_err(|e| e.to_string()),
         "forward" => page.eval("history.forward()").map_err(|e| e.to_string()),
         "reload" => page.eval("location.reload()").map_err(|e| e.to_string()),
-        "home" => page.navigate(HOME.parse().map_err(|e| format!("{e}"))?).map_err(|e| e.to_string()),
+        "home" => page
+            .navigate(HOME.parse().map_err(|e| format!("{e}"))?)
+            .map_err(|e| e.to_string()),
         "window" => {
             let url = page.url().map_err(|e| e.to_string())?;
             open_window(&url)
@@ -425,7 +498,9 @@ pub async fn cr_action(app: AppHandle, action: String) -> Result<(), String> {
             if !allowed(&url) {
                 return Err("This page can't be opened".into());
             }
-            app.opener().open_url(url.as_str(), None::<&str>).map_err(|e| e.to_string())
+            app.opener()
+                .open_url(url.as_str(), None::<&str>)
+                .map_err(|e| e.to_string())
         }
         _ => Err("Unknown action".into()),
     }
@@ -454,16 +529,36 @@ mod tests {
     fn titles() {
         let t = |u: &str| title_from(&u.parse().unwrap());
         assert_eq!(t("https://www.crunchyroll.com/"), "Home");
-        assert_eq!(t("https://www.crunchyroll.com/series/GY5P48XEY/the-apothecary-diaries"), "The Apothecary Diaries");
-        assert_eq!(t("https://www.crunchyroll.com/watch/GR3VWXP96/resurrection-f"), "Resurrection F");
+        assert_eq!(
+            t("https://www.crunchyroll.com/series/GY5P48XEY/the-apothecary-diaries"),
+            "The Apothecary Diaries"
+        );
+        assert_eq!(
+            t("https://www.crunchyroll.com/watch/GR3VWXP96/resurrection-f"),
+            "Resurrection F"
+        );
         assert_eq!(t("https://www.crunchyroll.com/simulcasts"), "Simulcasts");
     }
 
     #[test]
     fn episodes() {
-        assert!(is_episode(&"https://www.crunchyroll.com/watch/GR3VWXP96/abc".parse().unwrap()));
-        assert!(is_episode(&"https://www.crunchyroll.com/de/watch/GR3VWXP96/abc".parse().unwrap()));
-        assert!(!is_episode(&"https://www.crunchyroll.com/series/GY5P48XEY/abc".parse().unwrap()));
-        assert!(!is_episode(&"https://sso.crunchyroll.com/watch".parse().unwrap()));
+        assert!(is_episode(
+            &"https://www.crunchyroll.com/watch/GR3VWXP96/abc"
+                .parse()
+                .unwrap()
+        ));
+        assert!(is_episode(
+            &"https://www.crunchyroll.com/de/watch/GR3VWXP96/abc"
+                .parse()
+                .unwrap()
+        ));
+        assert!(!is_episode(
+            &"https://www.crunchyroll.com/series/GY5P48XEY/abc"
+                .parse()
+                .unwrap()
+        ));
+        assert!(!is_episode(
+            &"https://sso.crunchyroll.com/watch".parse().unwrap()
+        ));
     }
 }
