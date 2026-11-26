@@ -64,6 +64,7 @@ pub fn run() {
             updater::restart_to_update,
             youtube::yt_account,
             youtube::yt_feed,
+            youtube::yt_home,
             youtube::yt_search,
             youtube::yt_channel,
             youtube::yt_login,

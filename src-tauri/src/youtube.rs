@@ -207,6 +207,12 @@ const FEED: &str = r#"
   return { status: 200, items: videos };
 "#;
 
+const HOME: &str = r#"
+  const r = await api("browse", { browseId: "FEwhat_to_watch" }, true);
+  if (r.status !== 200) return { status: r.status };
+  return { status: 200, items: collect(r.data).videos };
+"#;
+
 const SEARCH: &str = r#"
   const r = await api("search", { query: __QUERY__ }, false);
   if (r.status !== 200) return { status: r.status };
@@ -333,6 +339,12 @@ pub async fn yt_account(app: AppHandle) -> Result<Value, String> {
 #[tauri::command]
 pub async fn yt_feed(app: AppHandle) -> Result<Value, String> {
     run(&app, FEED).await
+}
+
+/// The Home page's recommended videos (personal when signed in).
+#[tauri::command]
+pub async fn yt_home(app: AppHandle) -> Result<Value, String> {
+    run(&app, HOME).await
 }
 
 /// Search YouTube: `{ videos, channels }`.

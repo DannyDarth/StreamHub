@@ -36,7 +36,7 @@ export interface YtAccount {
   avatar: string | null;
 }
 
-export type YtPage = { kind: "subs" } | { kind: "search"; q: string } | { kind: "channel"; id: string };
+export type YtPage = { kind: "home" } | { kind: "subs" } | { kind: "search"; q: string } | { kind: "channel"; id: string };
 
 export interface YtCtx {
   render(): void;
@@ -45,14 +45,14 @@ export interface YtCtx {
   watch(video: YtVideo): void;
 }
 
-export let nav: YtPage[] = [{ kind: "subs" }];
+export let nav: YtPage[] = [{ kind: "home" }];
 
 export function page(): YtPage {
   return nav[nav.length - 1];
 }
 
 export function go(p: YtPage): void {
-  if (p.kind === "subs") nav = [p];
+  if (p.kind === "subs" || p.kind === "home") nav = [p];
   else nav.push(p);
   window.scrollTo(0, 0);
 }
@@ -106,7 +106,7 @@ export function clearCache(): void {
 }
 
 function keyOf(p: YtPage): string {
-  return p.kind === "subs" ? "subs" : p.kind === "search" ? `search:${p.q}` : `channel:${p.id}`;
+  return p.kind === "home" ? "home" : p.kind === "subs" ? "subs" : p.kind === "search" ? `search:${p.q}` : `channel:${p.id}`;
 }
 
 function status(entry: Entry, empty: string, hasData: boolean): HTMLElement | null {
@@ -202,6 +202,20 @@ function byDay(ctx: YtCtx, videos: YtVideo[]): HTMLElement[] {
 
 // ---- pages ----
 
+function home(ctx: YtCtx): HTMLElement {
+  const entry = load(ctx, "home", () => invoke<YtVideo[]>("yt_home"));
+  const videos = (entry.data as YtVideo[] | null) ?? [];
+  const live = videos.filter((v) => v.live);
+  const rest = videos.filter((v) => !v.live);
+  return h(
+    "div",
+    {},
+    status(entry, "YouTube didn't recommend any videos.", videos.length > 0),
+    live.length ? section("Live now", grid(ctx, live)) : null,
+    rest.length ? section("Recommended", grid(ctx, rest)) : null,
+  );
+}
+
 function subs(ctx: YtCtx): HTMLElement {
   if (!ctx.account()) {
     return h(
@@ -296,5 +310,6 @@ export function content(ctx: YtCtx): HTMLElement {
   const p = page();
   if (p.kind === "search") return search(ctx, p.q);
   if (p.kind === "channel") return channel(ctx, p.id);
+  if (p.kind === "home") return home(ctx);
   return subs(ctx);
 }

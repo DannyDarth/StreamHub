@@ -604,6 +604,11 @@ function ytSubnav(): HTMLElement {
     yt.nav.length > 1 ? h("button", { class: "small", onclick: () => { yt.back(); render(); } }, "‹ Back") : null,
     h(
       "button",
+      { class: `sub${page.kind === "home" ? " active" : ""}`, onclick: () => { yt.go({ kind: "home" }); render(); } },
+      "Home",
+    ),
+    h(
+      "button",
       { class: `sub${page.kind === "subs" ? " active" : ""}`, onclick: () => { yt.go({ kind: "subs" }); render(); } },
       "Subscriptions",
     ),
