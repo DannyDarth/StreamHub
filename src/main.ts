@@ -515,7 +515,32 @@ function crError(e: unknown) {
   render();
 }
 
-/** The Crunchyroll tab: crunchyroll.com itself (a webview placed below this bar by the Rust side). */
+interface CrTab {
+  id: number;
+  title: string;
+}
+interface CrTabs {
+  tabs: CrTab[];
+  active: number | null;
+  fullscreen: boolean;
+}
+let crTabs: CrTabs = { tabs: [], active: null, fullscreen: false };
+
+function crCall(command: string, args: Record<string, unknown> = {}) {
+  void invoke<CrTabs | null>(command, args)
+    .then((t) => {
+      if (t) crTabs = t;
+      render();
+    })
+    .catch((e) => crError(e));
+}
+
+void listen<CrTabs>("crunchyroll-tabs", ({ payload }) => {
+  crTabs = payload;
+  if (state.view === "crunchyroll") render();
+});
+
+/** The Crunchyroll tab: crunchyroll.com itself, in tabs (webviews placed below this bar by the Rust side). */
 function crunchyrollView(): HTMLElement {
   const action = (name: string) => () => void invoke("cr_action", { action: name }).catch((e) => crError(e));
   return h(
@@ -524,26 +549,37 @@ function crunchyrollView(): HTMLElement {
     h(
       "div",
       { class: "cr-bar" },
-      h("button", { class: "small", onclick: action("back") }, "‹ Back"),
-      h("button", { class: "small", onclick: action("home") }, "Home"),
-      h("button", { class: "small", onclick: action("reload") }, "Reload"),
-      h("span", { class: "muted cr-note" }, "Crunchyroll's own site and player. Sign in there with your Crunchyroll account."),
-      h("button", { class: "small push", onclick: action("fullscreen") }, "Full screen"),
+      h("button", { class: "small", title: "Back", onclick: action("back") }, "‹"),
+      h("button", { class: "small", title: "Forward", onclick: action("forward") }, "›"),
+      h("button", { class: "small", title: "Reload", onclick: action("reload") }, "⟳"),
+      h("button", { class: "small", title: "Crunchyroll's home page", onclick: action("home") }, "Home"),
       h(
-        "button",
-        {
-          class: "small",
-          title: "Close Crunchyroll (stops what's playing)",
-          onclick: () => {
-            void invoke("cr_close");
-            state.view = "twitch";
-            render();
-          },
-        },
-        "Close",
+        "div",
+        { class: "cr-tabs" },
+        ...crTabs.tabs.map((t) =>
+          h(
+            "div",
+            { class: `cr-tab${t.id === crTabs.active ? " active" : ""}`, title: t.title },
+            h("button", { class: "cr-tab-name", onclick: () => crCall("cr_select", { id: t.id }) }, t.title || "Crunchyroll"),
+            h(
+              "button",
+              { class: "cr-tab-close", title: "Close this tab (stops what it's playing)", onclick: () => crCall("cr_close_tab", { id: t.id }) },
+              "×",
+            ),
+          ),
+        ),
+        h("button", { class: "small cr-new", title: "New tab (or Ctrl+click / middle-click a link)", onclick: () => crCall("cr_new_tab") }, "+"),
       ),
+      h("button", { class: "small", onclick: action("fullscreen") }, "Full screen"),
     ),
-    h("p", { class: "empty" }, "Loading Crunchyroll…"),
+    crTabs.tabs.length
+      ? h("p", { class: "empty" }, "Loading Crunchyroll…")
+      : h(
+          "div",
+          { class: "empty" },
+          h("p", {}, "No Crunchyroll tabs are open."),
+          h("button", { onclick: () => crCall("cr_new_tab") }, "Open Crunchyroll"),
+        ),
   );
 }
 
@@ -765,7 +801,7 @@ function header(): HTMLElement {
         class: `tab tab-${view}${state.view === view ? " active" : ""}`,
         onclick: () => {
           // Crunchyroll's page is a separate webview: hidden (still playing) when another tab opens
-          if (view === "crunchyroll") void invoke("cr_show").catch((e) => crError(e));
+          if (view === "crunchyroll") crCall("cr_show");
           else if (state.view === "crunchyroll") void invoke("cr_hide");
           state.view = view;
           // browsing: the stream keeps playing in the corner
