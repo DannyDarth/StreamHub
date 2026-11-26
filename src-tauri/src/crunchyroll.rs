@@ -30,14 +30,21 @@ const MAX_TABS: usize = 8;
 /// bypassed: Crunchyroll's own player and licence server still do all of that.
 const DRM_SCRIPT: &str = r#"
 (() => {
-  const eme = navigator.requestMediaKeySystemAccess && navigator.requestMediaKeySystemAccess.bind(navigator);
+  // only Crunchyroll's own frames: never sign-in or security-check frames
+  if (!/(^|\.)crunchyroll\.com$/.test(location.hostname)) return;
+  const eme = navigator.requestMediaKeySystemAccess;
   if (!eme) return;
-  navigator.requestMediaKeySystemAccess = (keySystem, configs) =>
-    /playready/i.test(keySystem)
-      ? Promise.reject(new DOMException("Unsupported keySystem", "NotSupportedError"))
-      : eme(keySystem, configs);
+  // a Proxy keeps the function looking like the browser's own to the page's checks
+  navigator.requestMediaKeySystemAccess = new Proxy(eme, {
+    apply(target, self, args) {
+      return /playready/i.test(String(args[0]))
+        ? Promise.reject(new DOMException("Unsupported keySystem", "NotSupportedError"))
+        : Reflect.apply(target, self, args);
+    },
+  });
 })();
 (() => {
+  if (!/(^|\.)crunchyroll\.com$/.test(location.hostname)) return;
   // what StreamHub shows when a video stays black: each frame reports its videos and errors to
   // the top page, which passes them on
   const report = (data) => { try { window.top.postMessage({ streamhubCr: data }, "*"); } catch (e) {} };
