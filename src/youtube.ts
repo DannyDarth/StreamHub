@@ -71,6 +71,7 @@ interface Entry {
   /** Feeds: more pages have been added, so the entry isn't reloaded until Refresh. */
   paged?: boolean;
   more?: boolean;
+  moreError?: string;
 }
 
 /** One page of a feed (Home, Subscriptions). */
@@ -109,7 +110,7 @@ function load<T>(ctx: YtCtx, key: string, fetcher: () => Promise<T>): Entry {
 function loadMore(ctx: YtCtx, key: string, command: string): void {
   const entry = cache.get(key);
   const feed = entry?.data as Feed | null;
-  if (!entry || entry.loading || entry.more || !feed?.next) return;
+  if (!entry || entry.loading || entry.more || entry.moreError || !feed?.next) return;
   entry.more = true;
   invoke<Feed>(command, { token: feed.next })
     .then((page) => {
@@ -118,9 +119,9 @@ function loadMore(ctx: YtCtx, key: string, command: string): void {
       entry.data = { videos: [...feed.videos, ...page.videos.filter((v) => !seen.has(v.id))], next: page.next };
       entry.paged = true;
     })
-    .catch(() => {
-      // Stop at an error: Refresh starts over
-      if (cache.get(key) === entry) entry.data = { ...feed, next: null };
+    .catch((e) => {
+      // Stop and show the error with a "Try again" button, instead of retrying forever
+      if (cache.get(key) === entry) entry.moreError = String(e);
     })
     .finally(() => {
       entry.more = false;
@@ -134,6 +135,14 @@ let moreObserver: IntersectionObserver | null = null;
 function feedEnd(ctx: YtCtx, key: string, command: string, entry: Entry): HTMLElement | null {
   const feed = entry.data as Feed | null;
   if (!feed?.next || entry.loading) return null;
+  if (entry.moreError) {
+    return h(
+      "div",
+      { class: "empty" },
+      h("p", { class: "row-error" }, `Couldn't load more videos: ${entry.moreError}`),
+      h("button", { onclick: () => { entry.moreError = undefined; loadMore(ctx, key, command); ctx.render(); } }, "Try again"),
+    );
+  }
   const end = h("p", { class: "empty" }, "Loading more…");
   moreObserver?.disconnect();
   moreObserver = new IntersectionObserver(
@@ -168,13 +177,19 @@ function status(entry: Entry, empty: string, hasData: boolean): HTMLElement | nu
 // ---- pieces ----
 
 export function thumbnail(id: string): string {
-  return `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
+  return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 }
 
 function videoCard(ctx: YtCtx, v: YtVideo): HTMLElement {
+  const openChannel = v.channelId
+    ? () => {
+        go({ kind: "channel", id: v.channelId! });
+        ctx.render();
+      }
+    : null;
   return h(
     "div",
-    { class: "card-wrap" },
+    { class: "yt-card" },
     h(
       "button",
       { class: "card", title: v.title, onclick: () => ctx.watch(v) },
@@ -188,31 +203,32 @@ function videoCard(ctx: YtCtx, v: YtVideo): HTMLElement {
             ? h("span", { class: "duration" }, v.duration)
             : null,
       ),
-      h("div", { class: "card-title" }, v.title || "Untitled video"),
     ),
     h(
       "div",
-      { class: "card-meta" },
-      v.channelId
+      { class: "yt-card-info" },
+      v.avatar
         ? h(
             "button",
-            {
-              class: "name-link",
-              onclick: () => {
-                go({ kind: "channel", id: v.channelId! });
-                ctx.render();
-              },
-            },
-            v.channel,
+            { class: "yt-avatar", title: v.channel, onclick: () => openChannel?.() },
+            h("img", { src: v.avatar, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }),
           )
-        : h("strong", {}, v.channel),
-      [v.views, v.published].filter(Boolean).length ? ` · ${[v.views, v.published].filter(Boolean).join(" · ")}` : "",
+        : null,
+      h(
+        "div",
+        { class: "yt-card-text" },
+        h("button", { class: "yt-title", title: v.title, onclick: () => ctx.watch(v) }, v.title || "Untitled video"),
+        openChannel
+          ? h("button", { class: "name-link yt-channel", onclick: openChannel }, v.channel)
+          : h("div", { class: "yt-channel" }, v.channel),
+        h("div", { class: "yt-meta" }, [v.views, v.published].filter(Boolean).join(" · ")),
+      ),
     ),
   );
 }
 
 function grid(ctx: YtCtx, videos: YtVideo[]): HTMLElement {
-  return h("div", { class: "grid" }, ...videos.map((v) => videoCard(ctx, v)));
+  return h("div", { class: "grid yt-grid" }, ...videos.map((v) => videoCard(ctx, v)));
 }
 
 function section(title: string, ...children: (Node | null)[]): HTMLElement {

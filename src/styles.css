@@ -493,3 +493,31 @@ body.player-full { overflow: hidden; }
 }
 .sb-toast.visible { display: flex; }
 #player-host.mini .sb-toast { bottom: 40px; right: 8px; }
+
+/* YouTube: bigger cards with room to breathe, like youtube.com */
+.yt-grid {
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 36px 20px;
+}
+.yt-grid .thumb { border-radius: 12px; }
+.yt-card { min-width: 0; }
+.yt-card-info { display: flex; gap: 12px; margin-top: 12px; align-items: flex-start; }
+.yt-avatar { flex: none; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; overflow: hidden; background: var(--panel-2); }
+.yt-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.yt-card-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.yt-title {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-width: 100%;
+}
+.yt-channel, .yt-meta { color: var(--muted); font-size: 13px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.yt-channel.name-link:hover { color: var(--text); }

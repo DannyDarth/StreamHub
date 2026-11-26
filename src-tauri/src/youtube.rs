@@ -174,9 +174,13 @@ const WRAPPER: &str = r#"
     let token = null;
     const walk = (n) => {
       if (!n || typeof n !== "object") return;
-      const c = n.continuationItemRenderer;
-      const t = c && c.continuationEndpoint && c.continuationEndpoint.continuationCommand && c.continuationEndpoint.continuationCommand.token;
-      if (t) token = t;
+      // the token sits in the continuation item's endpoint, sometimes wrapped in a
+      // commandExecutorCommand, so look anywhere inside it
+      if (n.continuationItemRenderer) {
+        const m = JSON.stringify(n.continuationItemRenderer).match(/"continuationCommand":\{"token":"([^"]+)"/);
+        if (m) token = m[1];
+        return;
+      }
       for (const k in n) if (k !== "frameworkUpdates") walk(n[k]);
     };
     walk(root);
@@ -354,7 +358,7 @@ pub async fn yt_account(app: AppHandle) -> Result<Value, String> {
 /// Put a feed's page token (None for the first page) into a script.
 fn with_token(script: &str, token: Option<String>) -> Result<String, String> {
     let token = match token {
-        Some(t) if t.is_empty() || t.len() > 4000 || !t.chars().all(|c| c.is_ascii_alphanumeric() || "-_=%".contains(c)) => {
+        Some(t) if t.is_empty() || t.len() > 4000 || !t.chars().all(|c| c.is_ascii_graphic()) => {
             return Err("Invalid page".into())
         }
         t => t,
