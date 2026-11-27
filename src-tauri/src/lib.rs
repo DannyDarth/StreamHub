@@ -73,6 +73,7 @@ pub fn run() {
             youtube::yt_account,
             youtube::yt_feed,
             youtube::yt_home,
+            youtube::yt_history,
             youtube::yt_search,
             youtube::yt_channel,
             youtube::yt_login,

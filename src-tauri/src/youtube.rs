@@ -225,6 +225,34 @@ const FEED: &str = r#"
   return { status: 200, items: { videos, next: nextPage(r.data) } };
 "#;
 
+/// Your YouTube watch history, a page at a time, each video with the day YouTube files it under.
+const HISTORY: &str = r#"
+  const token = __TOKEN__;
+  const r = await api("browse", token ? { continuation: token } : { browseId: "FEhistory" }, true);
+  if (r.status !== 200) return { status: r.status };
+  const videos = [];
+  const seen = new Set();
+  const walk = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { n.forEach(walk); return; }
+    const section = n.itemSectionRenderer;
+    if (section) {
+      const header = section.header || {};
+      const day = text((header.itemSectionHeaderRenderer || {}).title)
+        || (JSON.stringify(header).match(/"(?:title|content)":"([^"]+)"/) || [])[1] || "";
+      for (const v of collect(section.contents || []).videos) {
+        if (!seen.has(v.id)) { seen.add(v.id); videos.push({ ...v, day }); }
+      }
+      return;
+    }
+    for (const k in n) if (k !== "frameworkUpdates") walk(n[k]);
+  };
+  walk(r.data);
+  if (!videos.length) for (const v of collect(r.data).videos) if (!seen.has(v.id)) { seen.add(v.id); videos.push({ ...v, day: "" }); }
+  if (!token && !videos.length && /signInEndpoint|Sign in/.test(JSON.stringify(r.data).slice(0, 20000))) return { status: 401 };
+  return { status: 200, items: { videos, next: nextPage(r.data) } };
+"#;
+
 const HOME: &str = r#"
   const token = __TOKEN__;
   const signedIn = Boolean(cookie("SAPISID") || cookie("__Secure-3PAPISID"));
@@ -371,6 +399,12 @@ fn with_token(script: &str, token: Option<String>) -> Result<String, String> {
 #[tauri::command]
 pub async fn yt_feed(app: AppHandle, token: Option<String>) -> Result<Value, String> {
     run(&app, &with_token(FEED, token)?).await
+}
+
+/// Your watch history, a page at a time: `{ videos, next }`, each video with its `day`.
+#[tauri::command]
+pub async fn yt_history(app: AppHandle, token: Option<String>) -> Result<Value, String> {
+    run(&app, &with_token(HISTORY, token)?).await
 }
 
 /// The Home page's recommended videos (personal when signed in), a page at a time: `{ videos, next }`.

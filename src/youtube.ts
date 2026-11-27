@@ -36,7 +36,7 @@ export interface YtAccount {
   avatar: string | null;
 }
 
-export type YtPage = { kind: "home" } | { kind: "subs" } | { kind: "search"; q: string } | { kind: "channel"; id: string };
+export type YtPage = { kind: "home" } | { kind: "subs" } | { kind: "history" } | { kind: "search"; q: string } | { kind: "channel"; id: string };
 
 export interface YtCtx {
   render(): void;
@@ -52,7 +52,7 @@ export function page(): YtPage {
 }
 
 export function go(p: YtPage): void {
-  if (p.kind === "subs" || p.kind === "home") nav = [p];
+  if (p.kind === "subs" || p.kind === "home" || p.kind === "history") nav = [p];
   else nav.push(p);
   window.scrollTo(0, 0);
 }
@@ -165,7 +165,7 @@ export function clearCache(): void {
 }
 
 function keyOf(p: YtPage): string {
-  return p.kind === "home" ? "home" : p.kind === "subs" ? "subs" : p.kind === "search" ? `search:${p.q}` : `channel:${p.id}`;
+  return p.kind === "home" ? "home" : p.kind === "subs" ? "subs" : p.kind === "history" ? "history" : p.kind === "search" ? `search:${p.q}` : `channel:${p.id}`;
 }
 
 function status(entry: Entry, empty: string, hasData: boolean): HTMLElement | null {
@@ -315,6 +315,46 @@ function subs(ctx: YtCtx): HTMLElement {
   );
 }
 
+/** Your YouTube watch history, grouped by the days YouTube gives (Today, Yesterday…). */
+function history(ctx: YtCtx): HTMLElement {
+  if (!ctx.account()) {
+    return h(
+      "div",
+      { class: "signin" },
+      h("h1", {}, "Your YouTube watch history"),
+      h("p", { class: "muted" }, "Sign in to YouTube to see the videos you've watched."),
+      h("button", { class: "yt-signin", onclick: () => ctx.signIn() }, "Sign in to YouTube"),
+    );
+  }
+  const entry = load(ctx, "history", () => invoke<Feed>("yt_history"));
+  if (entry.error === "not-signed-in") {
+    return h(
+      "div",
+      { class: "signin" },
+      h("p", { class: "muted" }, "Your YouTube sign-in has expired."),
+      h("button", { class: "yt-signin", onclick: () => ctx.signIn() }, "Sign in to YouTube"),
+    );
+  }
+  const videos = ((entry.data as Feed | null)?.videos ?? []) as (YtVideo & { day?: string })[];
+  const groups = new Map<string, YtVideo[]>();
+  for (const v of videos) {
+    const day = v.day || "Earlier";
+    groups.set(day, [...(groups.get(day) ?? []), v]);
+  }
+  return h(
+    "div",
+    {},
+    h(
+      "p",
+      { class: "muted small-note" },
+      "Videos you watched on YouTube. What you watch in StreamHub isn't added: StreamHub plays videos without telling YouTube.",
+    ),
+    status(entry, "Your watch history is empty (or turned off in your YouTube account).", videos.length > 0),
+    ...[...groups].map(([day, list]) => section(day, grid(ctx, list))),
+    feedEnd(ctx, "history", "yt_history", entry),
+  );
+}
+
 function search(ctx: YtCtx, q: string): HTMLElement {
   const entry = load(ctx, `search:${q}`, () => invoke<{ videos: YtVideo[]; channels: YtChannel[] }>("yt_search", { query: q }));
   const data = entry.data as { videos: YtVideo[]; channels: YtChannel[] } | null;
@@ -378,6 +418,7 @@ export function content(ctx: YtCtx): HTMLElement {
   const p = page();
   if (p.kind === "search") return search(ctx, p.q);
   if (p.kind === "channel") return channel(ctx, p.id);
+  if (p.kind === "history") return history(ctx);
   if (p.kind === "home") return home(ctx);
   return subs(ctx);
 }
