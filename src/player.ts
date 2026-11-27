@@ -37,6 +37,9 @@ interface Current {
   /** YouTube: SponsorBlock segments, and the ones the user undid. */
   segments: sponsorblock.Segment[];
   sbState?: "loading" | "done" | "failed";
+  /** YouTube: a live stream (no resume), and whether it was resumed already. */
+  live?: boolean;
+  resumed?: boolean;
   undone: Set<string>;
   /** YouTube: the audio tracks (dubs) and the one playing. */
   audioTracks: { id: number; name: string }[];
@@ -118,8 +121,83 @@ export function init(context: PlayerCtx): void {
     if (e.key === "Escape" && fullscreen) void setFullscreen(false);
   });
   video.addEventListener("timeupdate", checkSegments);
+  video.addEventListener("timeupdate", savePosition);
   video.addEventListener("loadedmetadata", renderSegments);
+  video.addEventListener("loadedmetadata", resumePosition);
   video.addEventListener("durationchange", renderSegments);
+}
+
+// ---- Resume where you left off (YouTube videos) ----
+
+const POSITIONS_KEY = "streamhub.ytPositions";
+const hints = new Map<string, number>();
+let lastSave = 0;
+
+type Positions = Record<string, { t: number; at: number }>;
+
+function positions(): Positions {
+  try {
+    return JSON.parse(localStorage.getItem(POSITIONS_KEY) ?? "{}") as Positions;
+  } catch {
+    return {};
+  }
+}
+
+function storePositions(all: Positions) {
+  // the 300 most recent videos
+  const kept = Object.entries(all).sort((a, b) => b[1].at - a[1].at).slice(0, 300);
+  try {
+    localStorage.setItem(POSITIONS_KEY, JSON.stringify(Object.fromEntries(kept)));
+  } catch {
+    // storage full: fine
+  }
+}
+
+/** How far you've watched a video on YouTube (any device, in percent), from its thumbnail. */
+export function resumeHint(videoId: string, percent: number) {
+  if (percent > 0) hints.set(videoId, percent);
+  else hints.delete(videoId);
+}
+
+/** Where you were in this video: here (saved by StreamHub) or on YouTube, whichever is further. */
+function resumePosition() {
+  const session = current;
+  if (!session || session.platform !== "youtube" || session.resumed || session.live) return;
+  const duration = video.duration;
+  if (!isFinite(duration) || duration < 120) return;
+  session.resumed = true;
+  const local = positions()[session.channel]?.t ?? 0;
+  const youtube = ((hints.get(session.channel) ?? 0) / 100) * duration;
+  const at = Math.max(local, youtube);
+  // not for the first seconds, or a video you'd nearly finished
+  if (at < 20 || at > duration - 30) return;
+  video.currentTime = at;
+  toast(`Resumed at ${clock(at)}`, () => {
+    video.currentTime = 0;
+  });
+}
+
+/** Every few seconds while a YouTube video plays: remember where you are (finished: forget). */
+function savePosition() {
+  const session = current;
+  if (!session || session.platform !== "youtube" || session.live) return;
+  const now = Date.now();
+  if (now - lastSave < 5000) return;
+  lastSave = now;
+  const duration = video.duration;
+  if (!isFinite(duration) || duration < 120 || video.currentTime < 5) return;
+  const all = positions();
+  if (video.currentTime > duration - 30) delete all[session.channel];
+  else all[session.channel] = { t: Math.floor(video.currentTime), at: now };
+  storePositions(all);
+}
+
+function clock(seconds: number): string {
+  const s = Math.floor(seconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(s % 60)}` : `${m}:${pad(s % 60)}`;
 }
 
 // ---- SponsorBlock ----
@@ -273,6 +351,7 @@ async function resolve() {
       });
       if (current !== session) return;
       if (r.title) session.label = r.title;
+      session.live = r.live;
       session.status = status("ok", "No ads", r.live ? "Live" : "Loading SponsorBlock…");
       if (!r.live) showSegmentsStatus(session);
       renderBar();
@@ -432,6 +511,9 @@ function playFile(url: string) {
 function close(error: string | null) {
   pausedByHiding = false;
   if (!current) return;
+  // remember where you stopped
+  lastSave = 0;
+  savePosition();
   const id = current.id;
   destroyPlayer();
   if (fullscreen) void setFullscreen(false);

@@ -131,6 +131,8 @@ const WRAPPER: &str = r#"
           published: text(v.publishedTimeText),
           views: text(v.shortViewCountText) || text(v.viewCountText),
           avatar: firstThumb(v.channelThumbnailSupportedRenderers || v.channelThumbnail || null),
+          // how far you got (on any device), from YouTube's red progress bar on the thumbnail
+          resume: Number((badges.match(/"percentDurationWatched":(\d+)/) || [])[1] || 0),
         });
       }
       const l = n.lockupViewModel;
@@ -152,6 +154,7 @@ const WRAPPER: &str = r#"
           published: (rows[1] || []).find((t) => /ago|Streamed|Scheduled|Premieres/i.test(t)) || "",
           views: (rows[1] || []).find((t) => /view|watching/i.test(t)) || "",
           avatar: firstThumb(meta.image || null),
+          resume: Number((flat.match(/"startPercent":(\d+)/) || [])[1] || 0),
         });
       }
       const c = n.channelRenderer;

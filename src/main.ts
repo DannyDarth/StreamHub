@@ -669,6 +669,7 @@ async function ytSignOut() {
 function watchYoutube(v: yt.YtVideo) {
   state.error = "";
   for (const [oldId, p] of state.playing) if (p.inApp) state.playing.delete(oldId);
+  player.resumeHint(v.id, v.resume ?? 0);
   const id = player.open("youtube", v.id, v.title);
   state.playing.set(id, { platform: "youtube", channel: v.title, status: null, inApp: true });
   render();
