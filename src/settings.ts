@@ -30,6 +30,7 @@ export const DEFAULTS: Settings = {
   miniPlayer: "corner",
   sbActions: { ...DEFAULT_ACTIONS },
   audioLanguage: "en",
+  ytAddToHistory: true,
   crPlayInWindow: false,
 };
 

@@ -225,6 +225,66 @@ const FEED: &str = r#"
   return { status: 200, items: { videos, next: nextPage(r.data) } };
 "#;
 
+/// Your YouTube watch history, a page at a time, each video with the day YouTube files it under.
+const HISTORY: &str = r#"
+  const token = __TOKEN__;
+  const r = await api("browse", token ? { continuation: token } : { browseId: "FEhistory" }, true);
+  if (r.status !== 200) return { status: r.status };
+  const videos = [];
+  const seen = new Set();
+  const walk = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { n.forEach(walk); return; }
+    const section = n.itemSectionRenderer;
+    if (section) {
+      const header = section.header || {};
+      const day = text((header.itemSectionHeaderRenderer || {}).title)
+        || (JSON.stringify(header).match(/"(?:title|content)":"([^"]+)"/) || [])[1] || "";
+      // item by item, to keep each video's "Remove from watch history" token
+      for (const item of section.contents || []) {
+        const v = collect(item).videos[0];
+        if (!v || seen.has(v.id)) continue;
+        seen.add(v.id);
+        const json = JSON.stringify(item);
+        const remove = (json.match(/Remove from (?:watch )?history[^]{0,600}?"feedbackToken":"([^"]+)"/i)
+          || json.match(/"feedbackEndpoint":\{"feedbackToken":"([^"]+)"/) || [])[1] || null;
+        videos.push({ ...v, day, remove });
+      }
+      return;
+    }
+    for (const k in n) if (k !== "frameworkUpdates") walk(n[k]);
+  };
+  walk(r.data);
+  if (!videos.length) for (const v of collect(r.data).videos) if (!seen.has(v.id)) { seen.add(v.id); videos.push({ ...v, day: "" }); }
+  if (!token && !videos.length && /signInEndpoint|Sign in/.test(JSON.stringify(r.data).slice(0, 20000))) return { status: 401 };
+  return { status: 200, items: { videos, next: nextPage(r.data) } };
+"#;
+
+/// Add a video you're watching in StreamHub to your YouTube watch history, the way YouTube's player
+/// does (the playback report YouTube's player sends, like yt-dlp's --mark-watched). Nothing else
+/// is sent: no ads are requested.
+const MARK_WATCHED: &str = r#"
+  const videoId = __VIDEO__;
+  const r = await api("player", { videoId, contentCheckOk: true, racyCheckOk: true }, true);
+  if (r.status !== 200) return { status: r.status };
+  const tracking = (r.data.playbackTracking || {}).videostatsPlaybackUrl || {};
+  const base = tracking.baseUrl || "";
+  if (!/^https:\/\/s\.youtube\.com\/api\/stats\/playback\?/.test(base)) return { status: 404, error: "No history report for this video" };
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const cpn = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => letters[b & 63]).join("");
+  await fetch(`${base}&ver=2&cpn=${cpn}`, { credentials: "include", mode: "no-cors" });
+  return { status: 200, items: true };
+"#;
+
+/// Remove one video from your watch history (YouTube's own "Remove from watch history").
+const HISTORY_REMOVE: &str = r#"
+  const token = __TOKEN__;
+  const r = await api("feedback", { feedbackTokens: [token], isFeedbackTokenUnencrypted: false, shouldMerge: false }, true);
+  if (r.status !== 200) return { status: r.status };
+  const ok = JSON.stringify(r.data).includes('"isProcessed":true') || !JSON.stringify(r.data).includes("error");
+  return ok ? { status: 200, items: true } : { status: 500, error: "YouTube didn't remove it." };
+"#;
+
 const HOME: &str = r#"
   const token = __TOKEN__;
   const signedIn = Boolean(cookie("SAPISID") || cookie("__Secure-3PAPISID"));
@@ -371,6 +431,27 @@ fn with_token(script: &str, token: Option<String>) -> Result<String, String> {
 #[tauri::command]
 pub async fn yt_feed(app: AppHandle, token: Option<String>) -> Result<Value, String> {
     run(&app, &with_token(FEED, token)?).await
+}
+
+/// Your watch history, a page at a time: `{ videos, next }`, each video with its `day`.
+#[tauri::command]
+pub async fn yt_history(app: AppHandle, token: Option<String>) -> Result<Value, String> {
+    run(&app, &with_token(HISTORY, token)?).await
+}
+
+/// Add a video to your watch history (Settings → YouTube → Add videos to my YouTube history).
+#[tauri::command]
+pub async fn yt_mark_watched(app: AppHandle, id: String) -> Result<Value, String> {
+    if id.len() != 11 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err("Not a YouTube video".into());
+    }
+    run(&app, &MARK_WATCHED.replace("__VIDEO__", &serde_json::to_string(&id).unwrap())).await
+}
+
+/// Remove a video from your watch history, with the token `yt_history` gave it.
+#[tauri::command]
+pub async fn yt_history_remove(app: AppHandle, token: String) -> Result<Value, String> {
+    run(&app, &with_token(HISTORY_REMOVE, Some(token))?).await
 }
 
 /// The Home page's recommended videos (personal when signed in), a page at a time: `{ videos, next }`.

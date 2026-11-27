@@ -32,21 +32,73 @@ export interface Segment {
   uuid: string;
 }
 
-/** The video's segments for the categories that aren't off (none if the video has none). */
+const CACHE_PREFIX = "streamhub.sb.";
+const CACHE_HOURS = 6;
+
+type ApiSegment = { segment: [number, number]; category: string; UUID: string; actionType?: string };
+
+function tidy(data: ApiSegment[], wanted: string[]): Segment[] {
+  return data
+    .filter((s) => wanted.includes(s.category) && (s.actionType ?? "skip") === "skip" && s.segment[1] > s.segment[0])
+    .map((s) => ({ start: s.segment[0], end: s.segment[1], category: s.category, uuid: s.UUID }))
+    .sort((a, b) => a.start - b.start);
+}
+
+async function fetchJson(url: string, ms: number): Promise<Response> {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), ms);
+  try {
+    return await fetch(url, { signal: abort.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * The video's segments for the categories that aren't off (none if the video has none).
+ * Fast path: SponsorBlock's hash-prefix lookup (the one its own extension uses, well cached), with
+ * a short time limit, then the plain lookup; answers are remembered for a few hours.
+ */
 export async function segments(videoId: string, actions: Record<string, SbAction>): Promise<Segment[]> {
   const wanted = CATEGORIES.map((c) => c.id).filter((id) => (actions[id] ?? "off") !== "off");
   if (!wanted.length) return [];
-  const url = new URL("https://sponsor.ajay.app/api/skipSegments");
-  url.searchParams.set("videoID", videoId);
-  url.searchParams.set("categories", JSON.stringify(wanted));
-  const res = await fetch(url);
-  if (res.status === 404) return [];
-  if (!res.ok) throw new Error(`SponsorBlock returned ${res.status}`);
-  const data = (await res.json()) as { segment: [number, number]; category: string; UUID: string; actionType?: string }[];
-  return data
-    .filter((s) => (s.actionType ?? "skip") === "skip" && s.segment[1] > s.segment[0])
-    .map((s) => ({ start: s.segment[0], end: s.segment[1], category: s.category, uuid: s.UUID }))
-    .sort((a, b) => a.start - b.start);
+  const cacheKey = CACHE_PREFIX + videoId;
+  try {
+    const cached = JSON.parse(localStorage.getItem(cacheKey) ?? "null") as { at: number; data: ApiSegment[] } | null;
+    if (cached && Date.now() - cached.at < CACHE_HOURS * 3600_000) return tidy(cached.data, wanted);
+  } catch {
+    // no cache
+  }
+  const all = JSON.stringify(CATEGORIES.map((c) => c.id));
+  let data: ApiSegment[] | null = null;
+  try {
+    const prefix = (await sha256Hex(videoId)).slice(0, 4);
+    const res = await fetchJson(`https://sponsor.ajay.app/api/skipSegments/${prefix}?categories=${encodeURIComponent(all)}`, 4000);
+    if (res.status === 404) data = [];
+    else if (res.ok) {
+      const videos = (await res.json()) as { videoID: string; segments: ApiSegment[] }[];
+      data = videos.find((v) => v.videoID === videoId)?.segments ?? [];
+    }
+  } catch {
+    // slow or down: the plain lookup below
+  }
+  if (data === null) {
+    const res = await fetchJson(`https://sponsor.ajay.app/api/skipSegments?videoID=${encodeURIComponent(videoId)}&categories=${encodeURIComponent(all)}`, 8000);
+    if (res.status === 404) data = [];
+    else if (!res.ok) throw new Error(`SponsorBlock returned ${res.status}`);
+    else data = (await res.json()) as ApiSegment[];
+  }
+  try {
+    localStorage.setItem(cacheKey, JSON.stringify({ at: Date.now(), data }));
+  } catch {
+    // storage full: fine
+  }
+  return tidy(data, wanted);
 }
 
 export function categoryName(id: string): string {
