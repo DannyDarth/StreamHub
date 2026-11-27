@@ -260,6 +260,22 @@ const HISTORY: &str = r#"
   return { status: 200, items: { videos, next: nextPage(r.data) } };
 "#;
 
+/// Add a video you're watching in StreamHub to your YouTube watch history, the way YouTube's player
+/// does (the playback report YouTube's player sends, like yt-dlp's --mark-watched). Nothing else
+/// is sent: no ads are requested.
+const MARK_WATCHED: &str = r#"
+  const videoId = __VIDEO__;
+  const r = await api("player", { videoId, contentCheckOk: true, racyCheckOk: true }, true);
+  if (r.status !== 200) return { status: r.status };
+  const tracking = (r.data.playbackTracking || {}).videostatsPlaybackUrl || {};
+  const base = tracking.baseUrl || "";
+  if (!/^https:\/\/s\.youtube\.com\/api\/stats\/playback\?/.test(base)) return { status: 404, error: "No history report for this video" };
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const cpn = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => letters[b & 63]).join("");
+  await fetch(`${base}&ver=2&cpn=${cpn}`, { credentials: "include", mode: "no-cors" });
+  return { status: 200, items: true };
+"#;
+
 /// Remove one video from your watch history (YouTube's own "Remove from watch history").
 const HISTORY_REMOVE: &str = r#"
   const token = __TOKEN__;
@@ -421,6 +437,15 @@ pub async fn yt_feed(app: AppHandle, token: Option<String>) -> Result<Value, Str
 #[tauri::command]
 pub async fn yt_history(app: AppHandle, token: Option<String>) -> Result<Value, String> {
     run(&app, &with_token(HISTORY, token)?).await
+}
+
+/// Add a video to your watch history (Settings → YouTube → Add videos to my YouTube history).
+#[tauri::command]
+pub async fn yt_mark_watched(app: AppHandle, id: String) -> Result<Value, String> {
+    if id.len() != 11 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err("Not a YouTube video".into());
+    }
+    run(&app, &MARK_WATCHED.replace("__VIDEO__", &serde_json::to_string(&id).unwrap())).await
 }
 
 /// Remove a video from your watch history, with the token `yt_history` gave it.

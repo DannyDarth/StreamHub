@@ -63,6 +63,8 @@ export interface Settings {
   sbActions: Record<string, "skip" | "show" | "off">;
   /** YouTube: the audio language when a video has several (dubs): a language code, or "original". */
   audioLanguage: string;
+  /** YouTube: add the videos watched in StreamHub to the YouTube watch history (signed in). */
+  ytAddToHistory: boolean;
   /** Crunchyroll: episodes play in a Crunchyroll window (Edge app mode) instead of the tab. */
   crPlayInWindow: boolean;
 }

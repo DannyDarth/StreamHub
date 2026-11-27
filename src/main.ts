@@ -739,6 +739,11 @@ function ytSettings(): HTMLElement[] {
       ],
       "Many videos have dubbed audio. StreamHub plays this language when the video has it (the original recording first), otherwise the original.",
     ),
+    checkbox(
+      "Add videos I watch to my YouTube history",
+      "When you're signed in, videos you play in StreamHub show up in your YouTube watch history (and the History tab), as if you watched them on YouTube. YouTube only gets the same report its own player sends; no ads are requested.",
+      "ytAddToHistory",
+    ),
     h("h3", {}, "SponsorBlock"),
     h("p", { class: "muted" }, "Parts of YouTube videos marked by the SponsorBlock community. Skip them, show them on the timeline, or ignore them."),
     h(

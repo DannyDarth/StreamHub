@@ -259,6 +259,8 @@ async function resolve() {
       renderBar();
       if (r.kind === "file") playFile(r.url);
       else play(r.url);
+      // Settings → YouTube: add it to your YouTube watch history (signed in only; no ads involved)
+      if (ctx.settings().ytAddToHistory !== false) void invoke("yt_mark_watched", { id: session.channel }).catch(() => {});
       if (!r.live && session.segments.length === 0) void loadSegments(session);
     } catch (e) {
       if (current === session) close(String(e));
