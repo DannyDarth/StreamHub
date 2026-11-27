@@ -610,3 +610,10 @@ body.player-full { overflow: hidden; }
 .cr-drm { flex: none; max-width: 320px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; }
 .settings-tab-crunchyroll.active { border-left-color: #f47521; }
 .small-note { font-size: 12.5px; margin: 4px 0 12px; }
+.yt-card { position: relative; }
+.yt-remove {
+  position: absolute; top: 8px; right: 8px; padding: 4px 10px; border: 0; border-radius: 6px;
+  background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 12px; opacity: 0; transition: opacity 0.15s;
+}
+.yt-card:hover .yt-remove, .yt-remove:focus, .yt-remove:disabled { opacity: 1; }
+.yt-remove:hover { background: #c00; }

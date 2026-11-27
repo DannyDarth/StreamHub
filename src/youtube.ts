@@ -335,8 +335,8 @@ function history(ctx: YtCtx): HTMLElement {
       h("button", { class: "yt-signin", onclick: () => ctx.signIn() }, "Sign in to YouTube"),
     );
   }
-  const videos = ((entry.data as Feed | null)?.videos ?? []) as (YtVideo & { day?: string })[];
-  const groups = new Map<string, YtVideo[]>();
+  const videos = ((entry.data as Feed | null)?.videos ?? []) as HistoryVideo[];
+  const groups = new Map<string, HistoryVideo[]>();
   for (const v of videos) {
     const day = v.day || "Earlier";
     groups.set(day, [...(groups.get(day) ?? []), v]);
@@ -350,9 +350,46 @@ function history(ctx: YtCtx): HTMLElement {
       "Videos you watched on YouTube. What you watch in StreamHub isn't added: StreamHub plays videos without telling YouTube.",
     ),
     status(entry, "Your watch history is empty (or turned off in your YouTube account).", videos.length > 0),
-    ...[...groups].map(([day, list]) => section(day, grid(ctx, list))),
+    ...[...groups].map(([day, list]) =>
+      section(day, h("div", { class: "grid yt-grid" }, ...list.map((v) => historyCard(ctx, entry, v)))),
+    ),
     feedEnd(ctx, "history", "yt_history", entry),
   );
+}
+
+type HistoryVideo = YtVideo & { day?: string; remove?: string | null };
+
+/** A history video with a Remove button (YouTube's "Remove from watch history"). */
+function historyCard(ctx: YtCtx, entry: Entry, v: HistoryVideo): HTMLElement {
+  const card = videoCard(ctx, v);
+  if (!v.remove) return card;
+  const button = h(
+    "button",
+    {
+      class: "yt-remove",
+      title: "Remove from your YouTube watch history",
+      onclick: (e) => {
+        e.stopPropagation();
+        const b = e.currentTarget as HTMLButtonElement;
+        b.disabled = true;
+        b.textContent = "Removing…";
+        invoke("yt_history_remove", { token: v.remove })
+          .then(() => {
+            const feed = entry.data as Feed | null;
+            if (feed) entry.data = { ...feed, videos: feed.videos.filter((x) => x.id !== v.id) };
+            ctx.render();
+          })
+          .catch((err) => {
+            b.disabled = false;
+            b.textContent = "Couldn't remove: try again";
+            b.title = String(err);
+          });
+      },
+    },
+    "× Remove",
+  );
+  card.append(button);
+  return card;
 }
 
 function search(ctx: YtCtx, q: string): HTMLElement {

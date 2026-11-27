@@ -240,8 +240,15 @@ const HISTORY: &str = r#"
       const header = section.header || {};
       const day = text((header.itemSectionHeaderRenderer || {}).title)
         || (JSON.stringify(header).match(/"(?:title|content)":"([^"]+)"/) || [])[1] || "";
-      for (const v of collect(section.contents || []).videos) {
-        if (!seen.has(v.id)) { seen.add(v.id); videos.push({ ...v, day }); }
+      // item by item, to keep each video's "Remove from watch history" token
+      for (const item of section.contents || []) {
+        const v = collect(item).videos[0];
+        if (!v || seen.has(v.id)) continue;
+        seen.add(v.id);
+        const json = JSON.stringify(item);
+        const remove = (json.match(/Remove from (?:watch )?history[^]{0,600}?"feedbackToken":"([^"]+)"/i)
+          || json.match(/"feedbackEndpoint":\{"feedbackToken":"([^"]+)"/) || [])[1] || null;
+        videos.push({ ...v, day, remove });
       }
       return;
     }
@@ -251,6 +258,15 @@ const HISTORY: &str = r#"
   if (!videos.length) for (const v of collect(r.data).videos) if (!seen.has(v.id)) { seen.add(v.id); videos.push({ ...v, day: "" }); }
   if (!token && !videos.length && /signInEndpoint|Sign in/.test(JSON.stringify(r.data).slice(0, 20000))) return { status: 401 };
   return { status: 200, items: { videos, next: nextPage(r.data) } };
+"#;
+
+/// Remove one video from your watch history (YouTube's own "Remove from watch history").
+const HISTORY_REMOVE: &str = r#"
+  const token = __TOKEN__;
+  const r = await api("feedback", { feedbackTokens: [token], isFeedbackTokenUnencrypted: false, shouldMerge: false }, true);
+  if (r.status !== 200) return { status: r.status };
+  const ok = JSON.stringify(r.data).includes('"isProcessed":true') || !JSON.stringify(r.data).includes("error");
+  return ok ? { status: 200, items: true } : { status: 500, error: "YouTube didn't remove it." };
 "#;
 
 const HOME: &str = r#"
@@ -405,6 +421,12 @@ pub async fn yt_feed(app: AppHandle, token: Option<String>) -> Result<Value, Str
 #[tauri::command]
 pub async fn yt_history(app: AppHandle, token: Option<String>) -> Result<Value, String> {
     run(&app, &with_token(HISTORY, token)?).await
+}
+
+/// Remove a video from your watch history, with the token `yt_history` gave it.
+#[tauri::command]
+pub async fn yt_history_remove(app: AppHandle, token: String) -> Result<Value, String> {
+    run(&app, &with_token(HISTORY_REMOVE, Some(token))?).await
 }
 
 /// The Home page's recommended videos (personal when signed in), a page at a time: `{ videos, next }`.
