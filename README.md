@@ -41,6 +41,7 @@ StreamHub 2 keeps its own settings: sign in to Twitch (and Kick) again after upg
 - **Home**: your recommendations. **Subscriptions**: new videos grouped by day (Today, Yesterday, weekdays…), with live streams on top. Both keep loading as you scroll
 - Search videos and channels, and channel pages
 - **History**: your watch history by day, with Remove; videos watched in StreamHub are added to it (Settings → YouTube)
+- Picks up where you left off (StreamHub's saved position, or your progress on YouTube from any device)
 - No ads: videos play in StreamHub's player through [yt-dlp](https://github.com/yt-dlp/yt-dlp), which StreamHub downloads and keeps up to date (checked against its release checksums)
 - [SponsorBlock](https://sponsor.ajay.app) built in: segments are skipped (with Undo) or marked on the timeline, per category (Settings → YouTube); they load as the video opens and are remembered for a few hours
 - English audio instead of dubs (Settings → YouTube → Audio language, or the audio menu in the player)
