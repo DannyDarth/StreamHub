@@ -14,6 +14,8 @@ export interface YtVideo {
   published: string;
   views: string;
   avatar: string | null;
+  /** How much of it you've watched on YouTube (any device), in percent. */
+  resume?: number;
 }
 
 export interface YtChannel {
