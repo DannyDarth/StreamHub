@@ -36,6 +36,7 @@ interface Current {
   label: string;
   /** YouTube: SponsorBlock segments, and the ones the user undid. */
   segments: sponsorblock.Segment[];
+  sbState?: "loading" | "done" | "failed";
   undone: Set<string>;
   /** YouTube: the audio tracks (dubs) and the one playing. */
   audioTracks: { id: number; name: string }[];
@@ -170,17 +171,34 @@ function checkSegments() {
   }
 }
 
+/** SponsorBlock's segments, fetched as soon as the video is opened (alongside finding its stream). */
 async function loadSegments(session: Current) {
+  session.sbState = "loading";
   try {
     const segs = await sponsorblock.segments(session.channel, ctx.settings().sbActions);
     if (current !== session) return;
     session.segments = segs;
-    if (session.status) session.status = { ...session.status, detail: `${segs.length} SponsorBlock segment${segs.length === 1 ? "" : "s"}` };
-    renderSegments();
-    renderBar();
+    session.sbState = "done";
   } catch {
     // no SponsorBlock: the video still plays
+    if (current !== session) return;
+    session.sbState = "failed";
   }
+  showSegmentsStatus(session);
+  renderSegments();
+  renderBar();
+}
+
+function showSegmentsStatus(session: Current) {
+  if (!session.status || session.status.detail === "Live") return;
+  const n = session.segments.length;
+  const detail =
+    session.sbState === "done"
+      ? `${n} SponsorBlock segment${n === 1 ? "" : "s"}`
+      : session.sbState === "failed"
+        ? "SponsorBlock unavailable"
+        : "Loading SponsorBlock…";
+  session.status = { ...session.status, detail };
 }
 
 export function supported(): boolean {
@@ -256,12 +274,13 @@ async function resolve() {
       if (current !== session) return;
       if (r.title) session.label = r.title;
       session.status = status("ok", "No ads", r.live ? "Live" : "Loading SponsorBlock…");
+      if (!r.live) showSegmentsStatus(session);
       renderBar();
       if (r.kind === "file") playFile(r.url);
       else play(r.url);
       // Settings → YouTube: add it to your YouTube watch history (signed in only; no ads involved)
       if (ctx.settings().ytAddToHistory !== false) void invoke("yt_mark_watched", { id: session.channel }).catch(() => {});
-      if (!r.live && session.segments.length === 0) void loadSegments(session);
+
     } catch (e) {
       if (current === session) close(String(e));
     } finally {
@@ -565,6 +584,8 @@ export function open(platform: Platform, channel: string, label = channel): numb
     quality: null,
   };
   layout();
+  // YouTube: SponsorBlock loads at the same time as the stream, not after it
+  if (platform === "youtube") void loadSegments(current);
   void resolve();
   return id;
 }
