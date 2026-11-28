@@ -677,17 +677,18 @@ function watchYoutube(v: yt.YtVideo) {
   render();
 }
 
+const shortsCtx: shorts.ShortsCtx = {
+  settings: () => state.settings,
+  openInPlayer: (id, title) =>
+    watchYoutube({ id, title, channel: "", channelId: null, live: false, duration: "", published: "", views: "", avatar: null }),
+};
+
 const ytCtx: yt.YtCtx = {
   render: () => render(),
   account: () => state.ytAccount,
   signIn: () => void ytSignIn(),
   watch: (v) => watchYoutube(v),
-  shorts: () =>
-    shorts.view({
-      settings: () => state.settings,
-      openInPlayer: (id, title) =>
-        watchYoutube({ id, title, channel: "", channelId: null, live: false, duration: "", published: "", views: "", avatar: null }),
-    }),
+  shorts: () => shorts.view(shortsCtx),
 };
 
 function ytSubnav(): HTMLElement {
@@ -1515,6 +1516,8 @@ function render() {
           ? crunchyrollView()
           : state.view === "youtube"
           ? (() => {
+              // the Shorts tab gets its first Shorts ready while you're elsewhere in YouTube
+              shorts.warmUp(shortsCtx);
               const main = h("main", {}, yt.content(ytCtx));
               main.prepend(ytSubnav());
               return main;
