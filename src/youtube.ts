@@ -38,7 +38,7 @@ export interface YtAccount {
   avatar: string | null;
 }
 
-export type YtPage = { kind: "home" } | { kind: "subs" } | { kind: "history" } | { kind: "search"; q: string } | { kind: "channel"; id: string };
+export type YtPage = { kind: "home" } | { kind: "subs" } | { kind: "history" } | { kind: "later" } | { kind: "search"; q: string } | { kind: "channel"; id: string };
 
 export interface YtCtx {
   render(): void;
@@ -54,7 +54,7 @@ export function page(): YtPage {
 }
 
 export function go(p: YtPage): void {
-  if (p.kind === "subs" || p.kind === "home" || p.kind === "history") nav = [p];
+  if (p.kind === "subs" || p.kind === "home" || p.kind === "history" || p.kind === "later") nav = [p];
   else nav.push(p);
   window.scrollTo(0, 0);
 }
@@ -167,7 +167,7 @@ export function clearCache(): void {
 }
 
 function keyOf(p: YtPage): string {
-  return p.kind === "home" ? "home" : p.kind === "subs" ? "subs" : p.kind === "history" ? "history" : p.kind === "search" ? `search:${p.q}` : `channel:${p.id}`;
+  return p.kind === "home" ? "home" : p.kind === "subs" ? "subs" : p.kind === "history" ? "history" : p.kind === "later" ? "later" : p.kind === "search" ? `search:${p.q}` : `channel:${p.id}`;
 }
 
 function status(entry: Entry, empty: string, hasData: boolean): HTMLElement | null {
@@ -189,9 +189,39 @@ function videoCard(ctx: YtCtx, v: YtVideo): HTMLElement {
         ctx.render();
       }
     : null;
+  // signed in: + Watch later on hover
+  const later =
+    ctx.account() && !v.live
+      ? h(
+          "button",
+          {
+            class: "yt-later",
+            title: "Save to your Watch later list",
+            onclick: (e) => {
+              e.stopPropagation();
+              const b = e.currentTarget as HTMLButtonElement;
+              b.disabled = true;
+              b.textContent = "Saving…";
+              invoke("yt_watch_later_edit", { id: v.id, add: true })
+                .then(() => {
+                  b.textContent = "✓ Watch later";
+                  b.classList.add("saved");
+                  cache.delete("later");
+                })
+                .catch((err) => {
+                  b.disabled = false;
+                  b.textContent = "Couldn't save: try again";
+                  b.title = String(err);
+                });
+            },
+          },
+          "+ Watch later",
+        )
+      : null;
   return h(
     "div",
     { class: "yt-card" },
+    later,
     h(
       "button",
       { class: "card", title: v.title, onclick: () => ctx.watch(v) },
@@ -270,15 +300,66 @@ function byDay(ctx: YtCtx, videos: YtVideo[]): HTMLElement[] {
 
 // ---- pages ----
 
+// ---- Filter by channel: any channel you're subscribed to (Home, Subscriptions, History, Watch later) ----
+
+let channelFilter: { id: string; name: string } | null = null;
+
+/** The Filter by channel menu: every channel you're subscribed to. */
+function channelFilterBar(ctx: YtCtx): HTMLElement | null {
+  if (!ctx.account()) return null;
+  const entry = load(ctx, "subscribed", () => invoke<YtChannel[]>("yt_subscribed"));
+  const channels = (entry.data as YtChannel[] | null) ?? [];
+  return h(
+    "div",
+    { class: "yt-filter" },
+    h("label", { for: "yt-channel-filter" }, "Filter by channel"),
+    h(
+      "select",
+      {
+        id: "yt-channel-filter",
+        disabled: entry.loading && !channels.length,
+        onchange: (e) => {
+          const id = (e.target as HTMLSelectElement).value;
+          const c = channels.find((x) => x.id === id);
+          channelFilter = c ? { id: c.id, name: c.name } : null;
+          ctx.render();
+        },
+      },
+      h("option", { value: "", selected: !channelFilter }, entry.loading && !channels.length ? "Loading your subscriptions…" : `All channels (${channels.length} subscriptions)`),
+      ...channels.map((c) => h("option", { value: c.id, selected: c.id === channelFilter?.id }, c.name)),
+    ),
+    channelFilter ? h("button", { class: "link", onclick: () => { channelFilter = null; ctx.render(); } }, "Show all") : null,
+  );
+}
+
+/** With a channel chosen: its latest videos (the same as its channel page, without leaving). */
+function filtered(ctx: YtCtx): HTMLElement | null {
+  if (!channelFilter) return null;
+  const { id, name } = channelFilter;
+  const entry = load(ctx, `channel:${id}`, () => invoke<YtChannelPage>("yt_channel", { id }));
+  const page = entry.data as YtChannelPage | null;
+  return h(
+    "div",
+    {},
+    channelFilterBar(ctx),
+    status(entry, `No videos from ${name}.`, (page?.videos.length ?? 0) > 0),
+    page?.videos.length ? section(`Latest from ${page.name || name}`, grid(ctx, page.videos)) : null,
+  );
+}
+
 function home(ctx: YtCtx): HTMLElement {
+  const chosen = filtered(ctx);
+  if (chosen) return chosen;
   const entry = load(ctx, "home", () => invoke<Feed>("yt_home"));
-  const videos = (entry.data as Feed | null)?.videos ?? [];
+  const all = (entry.data as Feed | null)?.videos ?? [];
+  const videos = all;
   const live = videos.filter((v) => v.live);
   const rest = videos.filter((v) => !v.live);
   return h(
     "div",
     {},
-    status(entry, "YouTube didn't recommend any videos.", videos.length > 0),
+    channelFilterBar(ctx),
+    status(entry, "YouTube didn't recommend any videos.", all.length > 0),
     live.length ? section("Live now", grid(ctx, live)) : null,
     rest.length ? section("Recommended", grid(ctx, rest)) : null,
     feedEnd(ctx, "home", "yt_home", entry),
@@ -295,8 +376,11 @@ function subs(ctx: YtCtx): HTMLElement {
       h("button", { class: "yt-signin", onclick: () => ctx.signIn() }, "Sign in to YouTube"),
     );
   }
+  const chosen = filtered(ctx);
+  if (chosen) return chosen;
   const entry = load(ctx, "subs", () => invoke<Feed>("yt_feed"));
-  const videos = (entry.data as Feed | null)?.videos ?? [];
+  const all = (entry.data as Feed | null)?.videos ?? [];
+  const videos = all;
   const live = videos.filter((v) => v.live);
   const recent = videos.filter((v) => !v.live);
   if (entry.error === "not-signed-in") {
@@ -310,7 +394,8 @@ function subs(ctx: YtCtx): HTMLElement {
   return h(
     "div",
     {},
-    status(entry, "No new videos from your subscriptions.", videos.length > 0),
+    channelFilterBar(ctx),
+    status(entry, "No new videos from your subscriptions.", all.length > 0),
     live.length ? section("Live now", grid(ctx, live)) : null,
     ...byDay(ctx, recent),
     feedEnd(ctx, "subs", "yt_feed", entry),
@@ -328,6 +413,8 @@ function history(ctx: YtCtx): HTMLElement {
       h("button", { class: "yt-signin", onclick: () => ctx.signIn() }, "Sign in to YouTube"),
     );
   }
+  const chosen = filtered(ctx);
+  if (chosen) return chosen;
   const entry = load(ctx, "history", () => invoke<Feed>("yt_history"));
   if (entry.error === "not-signed-in") {
     return h(
@@ -337,7 +424,8 @@ function history(ctx: YtCtx): HTMLElement {
       h("button", { class: "yt-signin", onclick: () => ctx.signIn() }, "Sign in to YouTube"),
     );
   }
-  const videos = ((entry.data as Feed | null)?.videos ?? []) as HistoryVideo[];
+  const all = ((entry.data as Feed | null)?.videos ?? []) as HistoryVideo[];
+  const videos = all;
   const groups = new Map<string, HistoryVideo[]>();
   for (const v of videos) {
     const day = v.day || "Earlier";
@@ -349,9 +437,10 @@ function history(ctx: YtCtx): HTMLElement {
     h(
       "p",
       { class: "muted small-note" },
-      "Videos you watched on YouTube. What you watch in StreamHub isn't added: StreamHub plays videos without telling YouTube.",
+      "Videos you watched on YouTube and in StreamHub (Settings → YouTube → Add videos I watch to my YouTube history).",
     ),
-    status(entry, "Your watch history is empty (or turned off in your YouTube account).", videos.length > 0),
+    channelFilterBar(ctx),
+    status(entry, "Your watch history is empty (or turned off in your YouTube account).", all.length > 0),
     ...[...groups].map(([day, list]) =>
       section(day, h("div", { class: "grid yt-grid" }, ...list.map((v) => historyCard(ctx, entry, v)))),
     ),
@@ -360,6 +449,72 @@ function history(ctx: YtCtx): HTMLElement {
 }
 
 type HistoryVideo = YtVideo & { day?: string; remove?: string | null };
+
+/** Your Watch later list (signed in), with Remove. */
+function watchLater(ctx: YtCtx): HTMLElement {
+  if (!ctx.account()) {
+    return h(
+      "div",
+      { class: "signin" },
+      h("h1", {}, "Watch later"),
+      h("p", { class: "muted" }, "Sign in to YouTube to see your Watch later list."),
+      h("button", { class: "yt-signin", onclick: () => ctx.signIn() }, "Sign in to YouTube"),
+    );
+  }
+  const chosen = filtered(ctx);
+  if (chosen) return chosen;
+  const entry = load(ctx, "later", () => invoke<Feed>("yt_watch_later"));
+  const all = (entry.data as Feed | null)?.videos ?? [];
+  const videos = all;
+  return h(
+    "div",
+    {},
+    channelFilterBar(ctx),
+    status(entry, "Nothing in Watch later. Add videos with + Watch later on any video.", all.length > 0),
+    videos.length
+      ? h(
+          "div",
+          { class: "grid yt-grid" },
+          ...videos.map((v) =>
+            removableCard(ctx, entry, v, "Take it off Watch later", () => invoke("yt_watch_later_edit", { id: v.id, add: false })),
+          ),
+        )
+      : null,
+    feedEnd(ctx, "later", "yt_watch_later", entry),
+  );
+}
+
+/** A card with a Remove button on hover. */
+function removableCard(ctx: YtCtx, entry: Entry, v: YtVideo, title: string, remove: () => Promise<unknown>): HTMLElement {
+  const card = videoCard(ctx, v);
+  const button = h(
+    "button",
+    {
+      class: "yt-remove",
+      title,
+      onclick: (e) => {
+        e.stopPropagation();
+        const b = e.currentTarget as HTMLButtonElement;
+        b.disabled = true;
+        b.textContent = "Removing…";
+        remove()
+          .then(() => {
+            const feed = entry.data as Feed | null;
+            if (feed) entry.data = { ...feed, videos: feed.videos.filter((x) => x.id !== v.id) };
+            ctx.render();
+          })
+          .catch((err) => {
+            b.disabled = false;
+            b.textContent = "Couldn't remove: try again";
+            b.title = String(err);
+          });
+      },
+    },
+    "× Remove",
+  );
+  card.append(button);
+  return card;
+}
 
 /** A history video with a Remove button (YouTube's "Remove from watch history"). */
 function historyCard(ctx: YtCtx, entry: Entry, v: HistoryVideo): HTMLElement {
@@ -458,6 +613,7 @@ export function content(ctx: YtCtx): HTMLElement {
   if (p.kind === "search") return search(ctx, p.q);
   if (p.kind === "channel") return channel(ctx, p.id);
   if (p.kind === "history") return history(ctx);
+  if (p.kind === "later") return watchLater(ctx);
   if (p.kind === "home") return home(ctx);
   return subs(ctx);
 }

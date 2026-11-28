@@ -703,6 +703,11 @@ function ytSubnav(): HTMLElement {
       { class: `sub${page.kind === "history" ? " active" : ""}`, onclick: () => { yt.go({ kind: "history" }); render(); } },
       "History",
     ),
+    h(
+      "button",
+      { class: `sub${page.kind === "later" ? " active" : ""}`, onclick: () => { yt.go({ kind: "later" }); render(); } },
+      "Watch later",
+    ),
     h("button", { class: "small push", onclick: () => { yt.refresh(); render(); } }, "Refresh"),
   );
 }
@@ -739,6 +744,11 @@ function ytSettings(): HTMLElement[] {
         ["ja", "Japanese"],
       ],
       "Many videos have dubbed audio. StreamHub plays this language when the video has it (the original recording first), otherwise the original.",
+    ),
+    checkbox(
+      "Show comments",
+      "A video's comments show beside it (top comments first, loading more as you scroll). Hide comments in the player hides them for now.",
+      "ytComments",
     ),
     checkbox(
       "Add videos I watch to my YouTube history",

@@ -115,7 +115,7 @@ const WRAPPER: &str = r#"
     const walk = (n) => {
       if (!n || typeof n !== "object") return;
       if (Array.isArray(n)) { n.forEach(walk); return; }
-      const v = n.videoRenderer || n.gridVideoRenderer || n.compactVideoRenderer;
+      const v = n.videoRenderer || n.gridVideoRenderer || n.compactVideoRenderer || n.playlistVideoRenderer;
       if (v && v.videoId && !seenV.has(v.videoId)) {
         seenV.add(v.videoId);
         const badges = JSON.stringify(v.badges || []) + JSON.stringify(v.thumbnailOverlays || []);
@@ -129,7 +129,7 @@ const WRAPPER: &str = r#"
           live,
           duration: text(v.lengthText) || "",
           published: text(v.publishedTimeText),
-          views: text(v.shortViewCountText) || text(v.viewCountText),
+          views: text(v.shortViewCountText) || text(v.viewCountText) || (text(v.videoInfo).split(/\s*[•·]\s*/)[0] || ""),
           avatar: firstThumb(v.channelThumbnailSupportedRenderers || v.channelThumbnail || null),
           // how far you got (on any device), from YouTube's red progress bar on the thumbnail
           resume: Number((badges.match(/"percentDurationWatched":(\d+)/) || [])[1] || 0),
@@ -157,7 +157,7 @@ const WRAPPER: &str = r#"
           resume: Number((flat.match(/"startPercent":(\d+)/) || [])[1] || 0),
         });
       }
-      const c = n.channelRenderer;
+      const c = n.channelRenderer || n.gridChannelRenderer;
       if (c && c.channelId && !seenC.has(c.channelId)) {
         seenC.add(c.channelId);
         channels.push({
@@ -277,6 +277,161 @@ const MARK_WATCHED: &str = r#"
   const cpn = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => letters[b & 63]).join("");
   await fetch(`${base}&ver=2&cpn=${cpn}`, { credentials: "include", mode: "no-cors" });
   return { status: 200, items: true };
+"#;
+
+/// A video's comments, a page at a time (top comments first): `{ comments, next, count, off }`.
+const COMMENTS: &str = r#"
+  const signedIn = Boolean(cookie("SAPISID") || cookie("__Secure-3PAPISID"));
+  let token = __TOKEN__;
+  let count = "";
+  let create = null;
+  if (!token) {
+    const first = await api("next", { videoId: __VIDEO__ }, signedIn);
+    if (first.status !== 200) return { status: first.status };
+    // the comments section's first page token (in the watch page, or its comments panel)
+    const find = (n) => {
+      if (!n || typeof n !== "object") return null;
+      const s = n.itemSectionRenderer;
+      if (s && /comment/i.test(String(s.sectionIdentifier || s.targetId || ""))) {
+        const m = JSON.stringify(s).match(/"continuationCommand":\{"token":"([^"]+)"/);
+        if (m) return m[1];
+      }
+      const p = n.engagementPanelSectionListRenderer;
+      if (p && /comments/i.test(String(p.panelIdentifier || p.targetId || ""))) {
+        const m = JSON.stringify(p).match(/"continuationCommand":\{"token":"([^"]+)"/);
+        if (m) return m[1];
+      }
+      for (const k in n) { const t = find(n[k]); if (t) return t; }
+      return null;
+    };
+    token = find(first.data);
+    if (!token) return { status: 200, items: { comments: [], next: null, count: "", off: true, create: null } };
+  }
+  const r = await api("next", { continuation: token }, signedIn);
+  if (r.status !== 200) return { status: r.status };
+  const comments = [];
+  // current format: each comment's view model points at its text and author (commentKey) and
+  // at its toolbar (toolbarSurfaceKey, which holds the reply command) in frameworkUpdates
+  const mutations = (((r.data.frameworkUpdates || {}).entityBatchUpdate || {}).mutations) || [];
+  const ents = {};
+  for (const m of mutations) if (m.entityKey && m.payload) ents[m.entityKey] = m.payload;
+  const toComment = (p, replySource) => {
+    const props = p.properties || {}, author = p.author || {}, bar = p.toolbar || {};
+    return {
+      id: props.commentId || String(comments.length),
+      author: author.displayName || "",
+      avatar: author.avatarThumbnailUrl || null,
+      text: (props.content && props.content.content) || "",
+      published: props.publishedTime || "",
+      likes: bar.likeCountNotliked || bar.likeCountA11y || "",
+      replies: bar.replyCount || "",
+      pinned: false,
+      reply: (JSON.stringify(replySource || {}).match(/"createReplyParams":"([^"]+)"/) || [])[1] || null,
+    };
+  };
+  const views = [];
+  const findViews = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { n.forEach(findViews); return; }
+    if (n.commentKey && typeof n.commentKey === "string") { views.push(n); return; }
+    for (const k in n) if (k !== "frameworkUpdates") findViews(n[k]);
+  };
+  findViews(r.data.onResponseReceivedEndpoints || []);
+  for (const v of views) {
+    const p = (ents[v.commentKey] || {}).commentEntityPayload;
+    if (!p) continue;
+    const c = toComment(p, ents[v.toolbarSurfaceKey] || ents[v.commentSurfaceKey]);
+    if (!comments.some((x) => x.id === c.id)) comments.push(c);
+  }
+  if (!views.length) {
+    for (const m of mutations) {
+      const p = m.payload && m.payload.commentEntityPayload;
+      if (p) comments.push(toComment(p, null));
+    }
+  }
+  // older format
+  const walk = (n) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { n.forEach(walk); return; }
+    const c = n.commentRenderer;
+    if (c && c.commentId && !comments.some((x) => x.id === c.commentId)) {
+      comments.push({
+        id: c.commentId, author: text(c.authorText), avatar: firstThumb(c.authorThumbnail),
+        text: text(c.contentText), published: text(c.publishedTimeText), likes: text(c.voteCount),
+        replies: String(c.replyCount || ""), pinned: Boolean(c.pinnedCommentBadge),
+        reply: (JSON.stringify(n).match(/"createReplyParams":"([^"]+)"/) || [])[1] || null,
+      });
+      return;
+    }
+    const h = n.commentsHeaderRenderer;
+    if (h) {
+      count = text(h.countText) || text(h.commentsCount) || count;
+      create = (JSON.stringify(h).match(/"createCommentParams":"([^"]+)"/) || [])[1] || create;
+    }
+    for (const k in n) if (k !== "frameworkUpdates") walk(n[k]);
+  };
+  walk(r.data.onResponseReceivedEndpoints || r.data);
+  // the next page: the continuation at the end of the list (not a thread's replies)
+  let next = null;
+  for (const e of r.data.onResponseReceivedEndpoints || []) {
+    const items = ((e.reloadContinuationItemsCommand || e.appendContinuationItemsAction || {}).continuationItems) || [];
+    const last = items[items.length - 1];
+    const m = last && last.continuationItemRenderer && JSON.stringify(last.continuationItemRenderer).match(/"token":"([^"]+)"/);
+    if (m) next = m[1];
+  }
+  return { status: 200, items: { comments, next, count, off: false, create } };
+"#;
+
+/// Your Watch later list, a page at a time.
+const WATCH_LATER: &str = r#"
+  const token = __TOKEN__;
+  const r = await api("browse", token ? { continuation: token } : { browseId: "VLWL" }, true);
+  if (r.status !== 200) return { status: r.status };
+  const { videos } = collect(r.data);
+  if (!token && !videos.length && /signInEndpoint|Sign in/.test(JSON.stringify(r.data).slice(0, 20000))) return { status: 401 };
+  return { status: 200, items: { videos, next: nextPage(r.data) } };
+"#;
+
+/// Add a video to, or take it off, your Watch later list.
+const WATCH_LATER_EDIT: &str = r#"
+  const videoId = __VIDEO__;
+  const add = __ADD__;
+  const action = add ? { action: "ACTION_ADD_VIDEO", addedVideoId: videoId } : { action: "ACTION_REMOVE_VIDEO_BY_VIDEO_ID", removedVideoId: videoId };
+  const r = await api("browse/edit_playlist", { playlistId: "WL", actions: [action] }, true);
+  if (r.status !== 200) return { status: r.status };
+  return /STATUS_SUCCEEDED/.test(JSON.stringify(r.data)) ? { status: 200, items: true } : { status: 500, error: "YouTube didn't change Watch later." };
+"#;
+
+/// Post a comment (`reply` false, with the video's create params) or a reply (with the comment's).
+const POST_COMMENT: &str = r#"
+  const params = __PARAMS__;
+  const commentText = __TEXT__;
+  const reply = __REPLY__;
+  const r = reply
+    ? await api("comment/create_comment_reply", { createReplyParams: params, commentText }, true)
+    : await api("comment/create_comment", { createCommentParams: params, commentText }, true);
+  if (r.status !== 200) return { status: r.status };
+  const flat = JSON.stringify(r.data);
+  if (/"status":"STATUS_SUCCEEDED"|createCommentAction|createCommentReplyAction|commentEntityPayload/.test(flat)) return { status: 200, items: true };
+  const why = (flat.match(/"(?:errorMessage|text)":"([^"]{3,200})"/) || [])[1];
+  return { status: 500, error: why || "YouTube didn't post it." };
+"#;
+
+/// Every channel you're subscribed to (up to 15 pages of YouTube's list).
+const SUBSCRIBED: &str = r#"
+  let r = await api("browse", { browseId: "FEchannels" }, true);
+  if (r.status !== 200) return { status: r.status };
+  const channels = [];
+  const seen = new Set();
+  for (let page = 0; page < 15; page++) {
+    for (const c of collect(r.data).channels) if (!seen.has(c.id)) { seen.add(c.id); channels.push(c); }
+    const token = nextPage(r.data);
+    if (!token) break;
+    r = await api("browse", { continuation: token }, true);
+    if (r.status !== 200) break;
+  }
+  channels.sort((a, b) => a.name.localeCompare(b.name));
+  return { status: 200, items: channels };
 "#;
 
 /// Remove one video from your watch history (YouTube's own "Remove from watch history").
@@ -449,6 +604,57 @@ pub async fn yt_mark_watched(app: AppHandle, id: String) -> Result<Value, String
         return Err("Not a YouTube video".into());
     }
     run(&app, &MARK_WATCHED.replace("__VIDEO__", &serde_json::to_string(&id).unwrap())).await
+}
+
+/// Post a comment on a video, or a reply to a comment: `params` comes from `yt_comments`.
+#[tauri::command]
+pub async fn yt_comment_post(app: AppHandle, params: String, text: String, reply: bool) -> Result<Value, String> {
+    let text = text.trim();
+    if text.is_empty() || text.chars().count() > 10_000 {
+        return Err("Write something first (up to 10,000 characters)".into());
+    }
+    if params.is_empty() || params.len() > 4000 || !params.chars().all(|c| c.is_ascii_graphic()) {
+        return Err("Can't comment here".into());
+    }
+    let script = POST_COMMENT
+        .replace("__PARAMS__", &serde_json::to_string(&params).unwrap())
+        .replace("__TEXT__", &serde_json::to_string(text).unwrap())
+        .replace("__REPLY__", if reply { "true" } else { "false" });
+    run(&app, &script).await
+}
+
+/// Every channel you're subscribed to, by name.
+#[tauri::command]
+pub async fn yt_subscribed(app: AppHandle) -> Result<Value, String> {
+    run(&app, SUBSCRIBED).await
+}
+
+/// Your Watch later list, a page at a time: `{ videos, next }`.
+#[tauri::command]
+pub async fn yt_watch_later(app: AppHandle, token: Option<String>) -> Result<Value, String> {
+    run(&app, &with_token(WATCH_LATER, token)?).await
+}
+
+/// Add a video to Watch later (`add`), or take it off.
+#[tauri::command]
+pub async fn yt_watch_later_edit(app: AppHandle, id: String, add: bool) -> Result<Value, String> {
+    if id.len() != 11 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err("Not a YouTube video".into());
+    }
+    let script = WATCH_LATER_EDIT
+        .replace("__VIDEO__", &serde_json::to_string(&id).unwrap())
+        .replace("__ADD__", if add { "true" } else { "false" });
+    run(&app, &script).await
+}
+
+/// A video's comments (Settings → YouTube → Show comments), a page at a time.
+#[tauri::command]
+pub async fn yt_comments(app: AppHandle, id: String, token: Option<String>) -> Result<Value, String> {
+    if id.len() != 11 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err("Not a YouTube video".into());
+    }
+    let script = with_token(COMMENTS, token)?.replace("__VIDEO__", &serde_json::to_string(&id).unwrap());
+    run(&app, &script).await
 }
 
 /// Remove a video from your watch history, with the token `yt_history` gave it.

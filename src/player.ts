@@ -37,6 +37,8 @@ interface Current {
   /** YouTube: SponsorBlock segments, and the ones the user undid. */
   segments: sponsorblock.Segment[];
   sbState?: "loading" | "done" | "failed";
+  /** YouTube: the comments shown beside the video. */
+  comments?: Comments;
   /** YouTube: a live stream (no resume), and whether it was resumed already. */
   live?: boolean;
   resumed?: boolean;
@@ -87,7 +89,8 @@ const video = h("video", { class: "player-video", controls: true, autoplay: true
 const notice = h("div", { class: "player-notice" });
 const sbBar = h("div", { class: "sb-bar" });
 const sbToast = h("div", { class: "sb-toast" });
-host.append(bar, h("div", { class: "player-stage" }, video, notice, sbBar, sbToast));
+const commentsPane = h("aside", { class: "player-comments" });
+host.append(bar, h("div", { class: "player-main" }, h("div", { class: "player-stage" }, video, notice, sbBar, sbToast), commentsPane));
 
 export function init(context: PlayerCtx): void {
   ctx = context;
@@ -126,6 +129,196 @@ export function init(context: PlayerCtx): void {
   video.addEventListener("loadedmetadata", resumePosition);
   video.addEventListener("durationchange", renderSegments);
 }
+
+// ---- YouTube comments (Settings → YouTube → Show comments) ----
+
+interface Comment {
+  id: string;
+  author: string;
+  avatar: string | null;
+  text: string;
+  published: string;
+  likes: string;
+  replies: string;
+  pinned: boolean;
+  /** YouTube's parameters for replying to it (null: replies are off). */
+  reply: string | null;
+  /** Replies you posted from StreamHub (shown under it). */
+  mine?: string[];
+}
+
+interface Comments {
+  list: Comment[];
+  next: string | null;
+  count: string;
+  off: boolean;
+  loading: boolean;
+  error: string;
+  started: boolean;
+  /** YouTube's parameters for a new comment on the video (null: you can't comment). */
+  create: string | null;
+  /** The comment a reply box is open under. */
+  replyingTo: string | null;
+}
+
+/** Comments are hidden for now (the bar's Comments button), without changing the setting. */
+let commentsHidden = false;
+
+function commentsWanted(c: Current): boolean {
+  return c.platform === "youtube" && ctx.settings().ytComments !== false && !commentsHidden;
+}
+
+function loadComments(session: Current) {
+  const cm = (session.comments ??= {
+    list: [],
+    next: null,
+    count: "",
+    off: false,
+    loading: false,
+    error: "",
+    started: false,
+    create: null,
+    replyingTo: null,
+  });
+  if (cm.loading || (cm.started && !cm.next)) return;
+  cm.loading = true;
+  cm.error = "";
+  const token = cm.started ? cm.next : null;
+  cm.started = true;
+  renderComments();
+  invoke<{ comments: Comment[]; next: string | null; count: string; off: boolean; create: string | null }>("yt_comments", {
+    id: session.channel,
+    token,
+  })
+    .then((page) => {
+      if (current !== session) return;
+      const seen = new Set(cm.list.map((x) => x.id));
+      cm.list.push(...page.comments.filter((x) => !seen.has(x.id)));
+      cm.next = page.next;
+      cm.count = page.count || cm.count;
+      cm.off = page.off;
+      cm.create = page.create ?? cm.create;
+    })
+    .catch((e) => {
+      if (current === session) cm.error = String(e);
+    })
+    .finally(() => {
+      cm.loading = false;
+      if (current === session) renderComments();
+    });
+}
+
+function renderComments() {
+  const c = current;
+  const show = !!c && c.mode === "full" && !fullscreen && commentsWanted(c);
+  host.classList.toggle("with-comments", show);
+  if (!show || !c) {
+    commentsPane.replaceChildren();
+    return;
+  }
+  const cm = c.comments;
+  if (!cm) {
+    loadComments(c);
+    return;
+  }
+  const items = cm.list.map((x) =>
+    h(
+      "div",
+      { class: "comment" },
+      x.avatar ? h("img", { class: "comment-avatar", src: x.avatar, alt: "", referrerpolicy: "no-referrer", loading: "lazy" }) : h("div", { class: "comment-avatar" }),
+      h(
+        "div",
+        { class: "comment-body" },
+        h("div", { class: "comment-head" }, h("strong", {}, x.author), h("span", { class: "muted" }, x.published)),
+        h("div", { class: "comment-text" }, x.text),
+        h(
+          "div",
+          { class: "comment-meta muted" },
+          x.likes && x.likes !== "0" ? `👍 ${x.likes}` : "",
+          x.replies && x.replies !== "0" ? `  ·  ${x.replies} ${x.replies === "1" ? "reply" : "replies"}` : "",
+          x.reply
+            ? h(
+                "button",
+                {
+                  class: "link comment-reply-link",
+                  onclick: () => {
+                    cm.replyingTo = cm.replyingTo === x.id ? null : x.id;
+                    renderComments();
+                  },
+                },
+                "Reply",
+              )
+            : null,
+        ),
+        ...(x.mine ?? []).map((t) => h("div", { class: "comment-mine" }, h("strong", {}, "You: "), t)),
+        cm.replyingTo === x.id && x.reply ? commentForm(c, "Reply…", x.reply, true, (t) => (x.mine = [...(x.mine ?? []), t])) : null,
+      ),
+    ),
+  );
+  const end = cm.loading
+    ? h("p", { class: "muted comments-note" }, "Loading comments…")
+    : cm.error
+      ? h("p", { class: "comments-note" }, `Couldn't load comments. `, h("button", { class: "link", onclick: () => loadComments(c) }, "Try again"))
+      : cm.off
+        ? h("p", { class: "muted comments-note" }, "Comments are turned off for this video.")
+        : !cm.list.length
+          ? h("p", { class: "muted comments-note" }, "No comments yet.")
+          : null;
+  const scroll = commentsPane.scrollTop;
+  const add = cm.create
+    ? commentForm(c, "Add a comment…", cm.create, false, (t) =>
+        cm.list.unshift({ id: `mine-${Date.now()}`, author: "You", avatar: null, text: t, published: "just now", likes: "", replies: "", pinned: false, reply: null }),
+      )
+    : null;
+  commentsPane.replaceChildren(h("h3", { class: "comments-title" }, cm.count || "Comments"), ...(add ? [add] : []), ...items, ...(end ? [end] : []));
+  commentsPane.scrollTop = scroll;
+}
+
+const drafts = new Map<string, string>();
+
+/** A box to post a comment or a reply (as your signed-in YouTube account). */
+function commentForm(session: Current, placeholder: string, params: string, reply: boolean, posted: (text: string) => void): HTMLElement {
+  const box = h("textarea", { class: "comment-input", rows: "2", placeholder, maxlength: "10000" }) as HTMLTextAreaElement;
+  // what you've typed survives the list being redrawn (more comments loading)
+  box.value = drafts.get(params) ?? "";
+  box.addEventListener("input", () => drafts.set(params, box.value));
+  const note = h("span", { class: "muted comment-note" }, "");
+  const send = h(
+    "button",
+    {
+      class: "player-btn",
+      onclick: () => {
+        const text = box.value.trim();
+        if (!text) return;
+        send.setAttribute("disabled", "");
+        note.textContent = "Posting…";
+        invoke("yt_comment_post", { params, text, reply })
+          .then(() => {
+            if (current !== session || !session.comments) return;
+            posted(text);
+            drafts.delete(params);
+            if (reply) session.comments.replyingTo = null;
+            renderComments();
+          })
+          .catch((e) => {
+            send.removeAttribute("disabled");
+            note.textContent = `Couldn't post: ${String(e)}`;
+          });
+      },
+    },
+    reply ? "Reply" : "Comment",
+  );
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send.click();
+  });
+  return h("div", { class: "comment-form" }, box, h("div", { class: "comment-form-row" }, note, send));
+}
+
+commentsPane.addEventListener("scroll", () => {
+  const c = current;
+  if (!c?.comments?.next) return;
+  if (commentsPane.scrollTop + commentsPane.clientHeight > commentsPane.scrollHeight - 600) loadComments(c);
+});
 
 // ---- Resume where you left off (YouTube videos) ----
 
@@ -612,6 +805,13 @@ function renderBar() {
     c.mode === "full" && ctx.chatEnabled() && !fullscreen && c.platform !== "youtube"
       ? button("Chat", "Open chat", () => ctx.openChat(c.platform, c.channel))
       : null,
+    c.mode === "full" && !fullscreen && c.platform === "youtube" && ctx.settings().ytComments !== false
+      ? button(commentsHidden ? "Comments" : "Hide comments", "Show or hide the comments beside the video", () => {
+          commentsHidden = !commentsHidden;
+          renderComments();
+          renderBar();
+        })
+      : null,
     c.mode === "full" ? button(fullscreen ? "Exit full screen" : "Full screen", "Full screen (Esc to leave)", () => void setFullscreen(!fullscreen)) : null,
     c.mode === "full" && !fullscreen && c.platform !== "youtube"
       ? button("Open in player", "Watch in your video player instead", () => toExternal())
@@ -625,6 +825,7 @@ function layout() {
   host.className = current ? `${current.mode}${fullscreen ? " fullscreen" : ""}` : "";
   document.body.classList.toggle("player-full", current?.mode === "full");
   renderBar();
+  renderComments();
 }
 
 async function setFullscreen(on: boolean) {

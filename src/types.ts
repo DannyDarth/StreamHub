@@ -65,6 +65,8 @@ export interface Settings {
   audioLanguage: string;
   /** YouTube: add the videos watched in StreamHub to the YouTube watch history (signed in). */
   ytAddToHistory: boolean;
+  /** YouTube: show the video's comments beside it. */
+  ytComments: boolean;
   /** Crunchyroll: episodes play in a Crunchyroll window (Edge app mode) instead of the tab. */
   crPlayInWindow: boolean;
 }
