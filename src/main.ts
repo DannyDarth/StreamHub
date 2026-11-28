@@ -1231,7 +1231,7 @@ function settingsView(): HTMLElement {
           checkbox("Live notifications", "Notify me when a Twitch channel I follow or one of my Kick channels goes live.", "notifications"),
 
           h("h2", {}, "Updates"),
-          checkbox("Check for updates", "Look for a new StreamHub version on GitHub when StreamHub starts and every few hours.", "checkUpdates"),
+          checkbox("Check for updates", "Look for a new StreamHub version on GitHub when StreamHub starts, every 30 minutes and when you come back to it.", "checkUpdates"),
           checkbox(
             "Install updates automatically",
             "Download new versions in the background and install them when StreamHub restarts or you quit it. Not for the portable build.",
@@ -1381,7 +1381,8 @@ function signInView(): HTMLElement {
 // ---- update check ----
 
 const DISMISSED_KEY = "streamhub.update.dismissed";
-const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+const UPDATE_EVERY_MS = 30 * 60 * 1000;
+let lastUpdateCheck = 0;
 
 function updateBanner(): HTMLElement | null {
   const u = state.update;
@@ -1430,6 +1431,7 @@ function updateBanner(): HTMLElement | null {
 
 async function checkUpdates(manual = false) {
   if (!state.settings.checkUpdates && !manual) return;
+  lastUpdateCheck = Date.now();
   try {
     state.appVersion ||= await getVersion();
     const update = await checkForUpdate(state.appVersion);
@@ -1612,3 +1614,7 @@ void getVersion().then((v) => {
   void checkUpdates();
 });
 window.setInterval(() => void checkUpdates(), UPDATE_EVERY_MS);
+// coming back to StreamHub after a while also looks for a new version
+window.addEventListener("focus", () => {
+  if (state.appVersion && Date.now() - lastUpdateCheck > 10 * 60 * 1000) void checkUpdates();
+});

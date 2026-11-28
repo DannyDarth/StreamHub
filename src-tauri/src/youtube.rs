@@ -516,7 +516,9 @@ fn ensure_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .inner_size(400.0, 300.0)
         .on_navigation(move |url| fetcher_navigation(&nav_app, url))
         .on_page_load(move |_, payload| {
-            if matches!(payload.event(), PageLoadEvent::Finished) && payload.url().host_str() == Some("www.youtube.com") {
+            if matches!(payload.event(), PageLoadEvent::Finished)
+                && payload.url().host_str() == Some("www.youtube.com")
+            {
                 let _ = load_app.state::<YoutubeFetcher>().ready.send_replace(true);
             }
         })
@@ -549,7 +551,10 @@ async fn run(app: &AppHandle, body: &str) -> Result<Value, String> {
         _ => {
             fetcher.pending.lock().unwrap().remove(&id);
             let _ = fetcher.ready.send_replace(false);
-            let _ = window.eval(&format!("location.href = {}", serde_json::to_string(PAGE).unwrap()));
+            let _ = window.eval(&format!(
+                "location.href = {}",
+                serde_json::to_string(PAGE).unwrap()
+            ));
             return Err("YouTube didn't answer in time".into());
         }
     };
@@ -557,14 +562,21 @@ async fn run(app: &AppHandle, body: &str) -> Result<Value, String> {
     match value["status"].as_u64() {
         Some(200) => Ok(value["items"].clone()),
         Some(401) | Some(403) => Err("not-signed-in".into()),
-        Some(0) => Err(format!("Couldn't reach YouTube: {}", value["error"].as_str().unwrap_or_default())),
+        Some(0) => Err(format!(
+            "Couldn't reach YouTube: {}",
+            value["error"].as_str().unwrap_or_default()
+        )),
         Some(code) => Err(format!("YouTube returned {code}")),
         None => Err("Unexpected answer from YouTube".into()),
     }
 }
 
 pub fn valid_channel_id(id: &str) -> bool {
-    id.len() == 24 && id.starts_with("UC") && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    id.len() == 24
+        && id.starts_with("UC")
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// The signed-in YouTube account: `{ name, avatar }` (Err("not-signed-in") when there is none).
@@ -600,15 +612,28 @@ pub async fn yt_history(app: AppHandle, token: Option<String>) -> Result<Value, 
 /// Add a video to your watch history (Settings → YouTube → Add videos to my YouTube history).
 #[tauri::command]
 pub async fn yt_mark_watched(app: AppHandle, id: String) -> Result<Value, String> {
-    if id.len() != 11 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if id.len() != 11
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return Err("Not a YouTube video".into());
     }
-    run(&app, &MARK_WATCHED.replace("__VIDEO__", &serde_json::to_string(&id).unwrap())).await
+    run(
+        &app,
+        &MARK_WATCHED.replace("__VIDEO__", &serde_json::to_string(&id).unwrap()),
+    )
+    .await
 }
 
 /// Post a comment on a video, or a reply to a comment: `params` comes from `yt_comments`.
 #[tauri::command]
-pub async fn yt_comment_post(app: AppHandle, params: String, text: String, reply: bool) -> Result<Value, String> {
+pub async fn yt_comment_post(
+    app: AppHandle,
+    params: String,
+    text: String,
+    reply: bool,
+) -> Result<Value, String> {
     let text = text.trim();
     if text.is_empty() || text.chars().count() > 10_000 {
         return Err("Write something first (up to 10,000 characters)".into());
@@ -638,7 +663,11 @@ pub async fn yt_watch_later(app: AppHandle, token: Option<String>) -> Result<Val
 /// Add a video to Watch later (`add`), or take it off.
 #[tauri::command]
 pub async fn yt_watch_later_edit(app: AppHandle, id: String, add: bool) -> Result<Value, String> {
-    if id.len() != 11 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if id.len() != 11
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return Err("Not a YouTube video".into());
     }
     let script = WATCH_LATER_EDIT
@@ -649,11 +678,20 @@ pub async fn yt_watch_later_edit(app: AppHandle, id: String, add: bool) -> Resul
 
 /// A video's comments (Settings → YouTube → Show comments), a page at a time.
 #[tauri::command]
-pub async fn yt_comments(app: AppHandle, id: String, token: Option<String>) -> Result<Value, String> {
-    if id.len() != 11 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+pub async fn yt_comments(
+    app: AppHandle,
+    id: String,
+    token: Option<String>,
+) -> Result<Value, String> {
+    if id.len() != 11
+        || !id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return Err("Not a YouTube video".into());
     }
-    let script = with_token(COMMENTS, token)?.replace("__VIDEO__", &serde_json::to_string(&id).unwrap());
+    let script =
+        with_token(COMMENTS, token)?.replace("__VIDEO__", &serde_json::to_string(&id).unwrap());
     run(&app, &script).await
 }
 
@@ -676,7 +714,11 @@ pub async fn yt_search(app: AppHandle, query: String) -> Result<Value, String> {
     if query.is_empty() || query.len() > 200 {
         return Err("Enter something to search for".into());
     }
-    run(&app, &SEARCH.replace("__QUERY__", &serde_json::to_string(query).unwrap())).await
+    run(
+        &app,
+        &SEARCH.replace("__QUERY__", &serde_json::to_string(query).unwrap()),
+    )
+    .await
 }
 
 /// A channel's page: `{ id, name, description, avatar, videos }` (live streams first).
@@ -685,7 +727,11 @@ pub async fn yt_channel(app: AppHandle, id: String) -> Result<Value, String> {
     if !valid_channel_id(&id) {
         return Err("Invalid channel".into());
     }
-    run(&app, &CHANNEL.replace("__CHANNEL__", &serde_json::to_string(&id).unwrap())).await
+    run(
+        &app,
+        &CHANNEL.replace("__CHANNEL__", &serde_json::to_string(&id).unwrap()),
+    )
+    .await
 }
 
 /// Open youtube.com in a StreamHub window to sign in (or out). You sign in on Google's own page;
@@ -700,22 +746,24 @@ pub async fn yt_login(app: AppHandle) -> Result<(), String> {
     }
     let browser = app.clone();
     let start = "https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F";
-    let window = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::External(start.parse().unwrap()))
-        .title("Sign in to YouTube - StreamHub")
-        .inner_size(1000.0, 780.0)
-        .center()
-        .on_navigation(move |url| {
-            let host = url.host_str().unwrap_or_default();
-            let under = |d: &str| host == d || host.ends_with(&format!(".{d}"));
-            let allowed = url.scheme() == "https" && (under("youtube.com") || under("google.com") || under("gstatic.com"));
-            if !allowed && (url.scheme() == "https" || url.scheme() == "http") {
-                use tauri_plugin_opener::OpenerExt;
-                let _ = browser.opener().open_url(url.as_str(), None::<&str>);
-            }
-            allowed || url.scheme() == "about"
-        })
-        .build()
-        .map_err(|e| e.to_string())?;
+    let window =
+        WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::External(start.parse().unwrap()))
+            .title("Sign in to YouTube - StreamHub")
+            .inner_size(1000.0, 780.0)
+            .center()
+            .on_navigation(move |url| {
+                let host = url.host_str().unwrap_or_default();
+                let under = |d: &str| host == d || host.ends_with(&format!(".{d}"));
+                let allowed = url.scheme() == "https"
+                    && (under("youtube.com") || under("google.com") || under("gstatic.com"));
+                if !allowed && (url.scheme() == "https" || url.scheme() == "http") {
+                    use tauri_plugin_opener::OpenerExt;
+                    let _ = browser.opener().open_url(url.as_str(), None::<&str>);
+                }
+                allowed || url.scheme() == "about"
+            })
+            .build()
+            .map_err(|e| e.to_string())?;
     let closed = app.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Destroyed = event {

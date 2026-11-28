@@ -168,7 +168,10 @@ pub fn layout(app: &AppHandle) {
         let Some(page) = app.get_webview(&label(id)) else {
             continue;
         };
-        let x = if shown && Some(id) == active {
+        // a tab stays out of sight until its first page has loaded: StreamHub's own dark
+        // "Loading Crunchyroll…" shows meanwhile, instead of a blank white page
+        let ready = LOADED.lock().unwrap().contains(&id);
+        let x = if shown && ready && Some(id) == active {
             0.0
         } else {
             -(width + 10_000.0)
@@ -405,6 +408,49 @@ pub async fn cr_episodes_in_window(app: AppHandle, on: bool) -> Result<(), Strin
     Ok(())
 }
 
+/// Tabs whose first page has loaded (until then they stay out of sight).
+static LOADED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+/// The first page of a tab has loaded: bring it into view, and nudge its size so it repaints
+/// (a page that loaded out of sight could otherwise stay blank).
+fn first_load_done(app: &AppHandle, id: u32) {
+    {
+        let mut loaded = LOADED.lock().unwrap();
+        if loaded.contains(&id) {
+            return;
+        }
+        loaded.push(id);
+    }
+    layout(app);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let (Some(page), Some((_, width, height))) =
+            (app.get_webview(&label(id)), shown_bounds(&app))
+        {
+            let _ = page.set_size(LogicalSize::new(width - 1.0, height));
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            let _ = page.set_size(LogicalSize::new(width, height));
+            let _ = page.eval("window.dispatchEvent(new Event('resize'))");
+        }
+    });
+}
+
+/// Open the first Crunchyroll tab in the background a few seconds after StreamHub starts, so the
+/// Crunchyroll tab is ready when you open it (Crunchyroll's site is slow to load the first time).
+pub fn preload(app: &AppHandle) {
+    if !TABS.lock().unwrap().list.is_empty() {
+        return;
+    }
+    if let Ok(home) = HOME.parse() {
+        let shown = SHOWN.load(Ordering::SeqCst);
+        let _ = new_tab(app, home);
+        // preloading doesn't show it
+        SHOWN.store(shown, Ordering::SeqCst);
+        layout(app);
+        changed(app);
+    }
+}
+
 fn new_tab(app: &AppHandle, url: Url) -> Result<u32, String> {
     if TABS.lock().unwrap().list.len() >= MAX_TABS {
         return Err(format!(
@@ -421,16 +467,32 @@ fn new_tab(app: &AppHandle, url: Url) -> Result<u32, String> {
             "window.__streamhubEpisodesInWindow = {};\n{SCRIPT}",
             EPISODES_IN_WINDOW.load(Ordering::SeqCst)
         ))
-        .on_navigation(move |url| navigation(&nav_app, url));
-    // created where it shows (one created off-screen stayed white until it navigated again)
+        .on_navigation(move |url| navigation(&nav_app, url))
+        // dark while a page loads, instead of bright white
+        .background_color(tauri::window::Color(14, 14, 20, 255))
+        .on_page_load(move |page, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                let app = page.app_handle().clone();
+                tauri::async_runtime::spawn(async move { first_load_done(&app, id) });
+            }
+        });
+    // made out of sight at its full size; it comes into view when its first page has loaded
     let (top, width, height) = shown_bounds(app).ok_or("Couldn't size the Crunchyroll page")?;
     window
         .add_child(
             builder,
-            LogicalPosition::new(0.0, top),
+            LogicalPosition::new(-(width + 10_000.0), top),
             LogicalSize::new(width, height),
         )
         .map_err(|e| e.to_string())?;
+    // never wait forever for the first page
+    {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(15)).await;
+            first_load_done(&app, id);
+        });
+    }
     {
         let mut tabs = TABS.lock().unwrap();
         tabs.list.push(Tab {

@@ -54,7 +54,9 @@ pub fn parse_event(line: &str) -> Option<Event> {
             let without_scheme = url.split_once("://").map_or(url, |(_, host)| host);
             let server = without_scheme.split('/').next().unwrap_or_default();
             if !server.is_empty() {
-                return Some(Event::Proxy { server: server.to_string() });
+                return Some(Event::Proxy {
+                    server: server.to_string(),
+                });
             }
         }
     }
@@ -63,7 +65,9 @@ pub fn parse_event(line: &str) -> Option<Event> {
     }
     if let Some(rest) = msg.strip_prefix("Using ad-free backup stream (") {
         if let Some((player_type, _)) = rest.split_once(')') {
-            return Some(Event::Backup { player_type: player_type.to_string() });
+            return Some(Event::Backup {
+                player_type: player_type.to_string(),
+            });
         }
     }
     if msg.starts_with("Playing ad-free backup stream during advertisement break") {
@@ -93,7 +97,10 @@ impl ProxyRotation {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        Self { servers, switches: 0 }
+        Self {
+            servers,
+            switches: 0,
+        }
     }
 
     pub fn playlist(&self) -> String {
@@ -196,7 +203,10 @@ impl Tracker {
                 Some(self.status(
                     Level::Ok,
                     "Ad blocked",
-                    format!("Backup stream covered the ad break ({} so far)", self.ads_covered),
+                    format!(
+                        "Backup stream covered the ad break ({} so far)",
+                        self.ads_covered
+                    ),
                 ))
             }
             Event::AdDetected => None,
@@ -211,7 +221,10 @@ mod tests {
     #[test]
     fn strips_prefixes() {
         assert_eq!(strip_log_prefix("[plugins.twitch][info] Hello"), "Hello");
-        assert_eq!(strip_log_prefix("[cli][info] Opening stream: 1080p60 (hls)"), "Opening stream: 1080p60 (hls)");
+        assert_eq!(
+            strip_log_prefix("[cli][info] Opening stream: 1080p60 (hls)"),
+            "Opening stream: 1080p60 (hls)"
+        );
         assert_eq!(strip_log_prefix("plain\r\n"), "plain");
     }
 
@@ -235,7 +248,9 @@ mod tests {
         );
         assert_eq!(
             parse_event("[plugins.twitch][info] Using ad-free backup stream (autoplay)"),
-            Some(Event::Backup { player_type: "autoplay".into() })
+            Some(Event::Backup {
+                player_type: "autoplay".into()
+            })
         );
         assert_eq!(
             parse_event("[plugins.twitch][info] Playing ad-free backup stream during advertisement break of 30 seconds"),
@@ -245,13 +260,17 @@ mod tests {
             parse_event("[plugins.twitch][info] Detected advertisement break of 1 second"),
             Some(Event::AdDetected)
         );
-        assert_eq!(parse_event("[plugins.twitch][info] Detected advertisement break of many seconds"), None);
+        assert_eq!(
+            parse_event("[plugins.twitch][info] Detected advertisement break of many seconds"),
+            None
+        );
         assert_eq!(parse_event("[cli][info] Starting player: mpv"), None);
     }
 
     #[test]
     fn rotates_each_proxy_first_once() {
-        let mut rotation = ProxyRotation::new(vec!["a".into(), " b ".into(), "".into(), "c".into()]);
+        let mut rotation =
+            ProxyRotation::new(vec!["a".into(), " b ".into(), "".into(), "c".into()]);
         assert_eq!(rotation.playlist(), "a,b,c");
         assert_eq!(rotation.first(), Some("a"));
         assert!(rotation.switch());
@@ -273,8 +292,14 @@ mod tests {
     #[test]
     fn tracker_counts_covered_ads() {
         let mut tracker = Tracker::default();
-        tracker.record(&Event::Backup { player_type: "autoplay".into() });
-        let status = tracker.record(&Event::Proxy { server: "x.example".into() }).unwrap();
+        tracker.record(&Event::Backup {
+            player_type: "autoplay".into(),
+        });
+        let status = tracker
+            .record(&Event::Proxy {
+                server: "x.example".into(),
+            })
+            .unwrap();
         assert_eq!(status.level, Level::Ok);
         assert_eq!(status.detail, "via x.example · backup autoplay");
         let status = tracker.record(&Event::AdCovered).unwrap();

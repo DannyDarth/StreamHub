@@ -20,7 +20,10 @@ const EXE: &str = "yt-dlp.exe";
 const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub fn valid_video_id(id: &str) -> bool {
-    id.len() == 11 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    id.len() == 11
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 fn client() -> Result<reqwest::Client, String> {
@@ -71,9 +74,23 @@ async fn download_latest(path: &Path) -> Result<(), String> {
     };
     let exe_url = url(EXE).ok_or("yt-dlp's release has no yt-dlp.exe")?;
     let sums_url = url("SHA2-256SUMS").ok_or("yt-dlp's release has no SHA2-256SUMS")?;
-    let sums = client.get(sums_url).send().await.map_err(|e| e.to_string())?.text().await.map_err(|e| e.to_string())?;
+    let sums = client
+        .get(sums_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .text()
+        .await
+        .map_err(|e| e.to_string())?;
     let expected = checksum_for(&sums, EXE).ok_or("SHA2-256SUMS doesn't list yt-dlp.exe")?;
-    let bytes = client.get(exe_url).send().await.map_err(|e| e.to_string())?.bytes().await.map_err(|e| e.to_string())?;
+    let bytes = client
+        .get(exe_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .bytes()
+        .await
+        .map_err(|e| e.to_string())?;
     if format!("{:x}", Sha256::digest(&bytes)) != expected {
         return Err("The downloaded yt-dlp doesn't match its checksum".into());
     }
@@ -99,7 +116,10 @@ async fn ensure(app: &AppHandle) -> Result<PathBuf, String> {
         Ok(()) => Ok(path),
         // keep using the copy we have if the check fails (offline, GitHub down)
         Err(_) if path.is_file() => {
-            let _ = std::fs::File::options().append(true).open(&path).and_then(|f| f.set_modified(SystemTime::now()));
+            let _ = std::fs::File::options()
+                .append(true)
+                .open(&path)
+                .and_then(|f| f.set_modified(SystemTime::now()));
             Ok(path)
         }
         Err(e) => Err(format!("Couldn't get yt-dlp (needed for YouTube): {e}")),
@@ -125,7 +145,11 @@ pub fn choose(info: &Value) -> Option<(&'static str, String)> {
     let formats = info["formats"].as_array()?;
     let hls = formats
         .iter()
-        .filter(|f| f["protocol"].as_str().is_some_and(|p| p.starts_with("m3u8")))
+        .filter(|f| {
+            f["protocol"]
+                .as_str()
+                .is_some_and(|p| p.starts_with("m3u8"))
+        })
         .find_map(|f| f["manifest_url"].as_str().or_else(|| f["url"].as_str()));
     if let Some(url) = hls {
         return Some(("hls", url.to_string()));
@@ -157,7 +181,11 @@ pub fn choose(info: &Value) -> Option<(&'static str, String)> {
 
 /// Find a YouTube video's stream with yt-dlp.
 #[tauri::command]
-pub async fn yt_stream(app: AppHandle, id: String, quality: Option<String>) -> Result<YoutubeStream, String> {
+pub async fn yt_stream(
+    app: AppHandle,
+    id: String,
+    quality: Option<String>,
+) -> Result<YoutubeStream, String> {
     if !valid_video_id(&id) {
         return Err("Invalid video".into());
     }
@@ -188,7 +216,11 @@ pub async fn yt_stream(app: AppHandle, id: String, quality: Option<String>) -> R
 
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
-        let line = err.lines().rev().find(|l| l.contains("ERROR")).unwrap_or("yt-dlp couldn't play this video");
+        let line = err
+            .lines()
+            .rev()
+            .find(|l| l.contains("ERROR"))
+            .unwrap_or("yt-dlp couldn't play this video");
         return Err(line.trim_start_matches("ERROR:").trim().to_string());
     }
     let info: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
@@ -201,7 +233,11 @@ pub async fn yt_stream(app: AppHandle, id: String, quality: Option<String>) -> R
         kind,
         url: crate::fastplay::proxied(&url),
         title: info["title"].as_str().unwrap_or_default().to_string(),
-        channel: info["channel"].as_str().or_else(|| info["uploader"].as_str()).unwrap_or_default().to_string(),
+        channel: info["channel"]
+            .as_str()
+            .or_else(|| info["uploader"].as_str())
+            .unwrap_or_default()
+            .to_string(),
         live: info["is_live"].as_bool().unwrap_or(false),
         duration: info["duration"].as_f64(),
         qualities,
@@ -226,12 +262,21 @@ mod tests {
             { "protocol": "https", "vcodec": "avc1", "acodec": "mp4a", "height": 360, "url": "https://g/360.mp4" },
             { "protocol": "m3u8_native", "vcodec": "avc1", "acodec": "none", "height": 1080, "url": "https://g/1080.m3u8", "manifest_url": "https://manifest.googlevideo.com/master.m3u8" }
         ]});
-        assert_eq!(choose(&info), Some(("hls", "https://manifest.googlevideo.com/master.m3u8".to_string())));
+        assert_eq!(
+            choose(&info),
+            Some((
+                "hls",
+                "https://manifest.googlevideo.com/master.m3u8".to_string()
+            ))
+        );
         let info = json!({ "formats": [
             { "protocol": "https", "vcodec": "avc1", "acodec": "mp4a", "height": 360, "url": "https://g/360.mp4" },
             { "protocol": "https", "vcodec": "avc1", "acodec": "mp4a", "height": 720, "url": "https://g/720.mp4" },
             { "protocol": "https", "vcodec": "avc1", "acodec": "none", "height": 1080, "url": "https://g/1080.mp4" }
         ]});
-        assert_eq!(choose(&info), Some(("file", "https://g/720.mp4".to_string())));
+        assert_eq!(
+            choose(&info),
+            Some(("file", "https://g/720.mp4".to_string()))
+        );
     }
 }

@@ -21,7 +21,9 @@ fn open_release_page(app: AppHandle, url: String) -> Result<(), String> {
     if !url.starts_with("https://github.com/DannyDarth/StreamHub/releases/") {
         return Err("Not a StreamHub release page".into());
     }
-    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 fn show_main(app: &AppHandle) {
@@ -38,7 +40,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // the in-app player's playlists and video come through StreamHub (see fastplay.rs)
         .register_asynchronous_uri_scheme_protocol("stream", |_ctx, request, responder| {
-            tauri::async_runtime::spawn(async move { responder.respond(fastplay::proxy(request).await) });
+            tauri::async_runtime::spawn(async move {
+                responder.respond(fastplay::proxy(request).await)
+            });
         })
         .manage(streamlink::Streams::default())
         .manage(updater::Update::default())
@@ -126,6 +130,14 @@ pub fn run() {
             if let Err(e) = kick::ensure_window(app.handle()) {
                 eprintln!("Couldn't prepare Kick: {e}");
             }
+            // the Crunchyroll tab loads in the background, so it's ready when opened
+            let preload_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+                let app = preload_app.clone();
+                let _ = preload_app.run_on_main_thread(move || crunchyroll::preload(&app));
+            });
+
             Ok(())
         })
         .on_window_event(|window, event| {

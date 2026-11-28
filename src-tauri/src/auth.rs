@@ -40,7 +40,9 @@ fetch("/token?" + location.hash.slice(1))
 fn percent_encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
             _ => format!("%{b:02X}"),
         })
         .collect()
@@ -76,7 +78,10 @@ fn query_param(query: &str, key: &str) -> Option<String> {
 }
 
 fn new_state() -> String {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     format!("{:x}{:x}", nanos, std::process::id())
 }
 
@@ -134,14 +139,21 @@ fn wait_for_token(listener: TcpListener, state: &str) -> Result<String, String> 
         let _ = stream.set_nonblocking(false);
         let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
 
-        let Some(target) = read_target(&stream) else { continue };
+        let Some(target) = read_target(&stream) else {
+            continue;
+        };
         let (path, query) = target.split_once('?').unwrap_or((target.as_str(), ""));
 
         match path {
             "/redirect" => respond(&mut stream, "200 OK", "text/html", REDIRECT_PAGE),
             "/token" => {
                 if let Some(error) = query_param(query, "error") {
-                    respond(&mut stream, "200 OK", "text/plain", "Sign-in was cancelled. You can close this tab.");
+                    respond(
+                        &mut stream,
+                        "200 OK",
+                        "text/plain",
+                        "Sign-in was cancelled. You can close this tab.",
+                    );
                     return Err(format!("Twitch sign-in failed: {error}"));
                 }
                 let token = query_param(query, "access_token").unwrap_or_default();
@@ -150,10 +162,20 @@ fn wait_for_token(listener: TcpListener, state: &str) -> Result<String, String> 
                     && !token.is_empty()
                     && token.chars().all(|c| c.is_ascii_alphanumeric());
                 if valid {
-                    respond(&mut stream, "200 OK", "text/plain", "Signed in to StreamHub. You can close this tab.");
+                    respond(
+                        &mut stream,
+                        "200 OK",
+                        "text/plain",
+                        "Signed in to StreamHub. You can close this tab.",
+                    );
                     return Ok(token);
                 }
-                respond(&mut stream, "400 Bad Request", "text/plain", "Invalid sign-in response. Please try again.");
+                respond(
+                    &mut stream,
+                    "400 Bad Request",
+                    "text/plain",
+                    "Invalid sign-in response. Please try again.",
+                );
             }
             _ => respond(&mut stream, "404 Not Found", "text/plain", "Not found"),
         }
@@ -202,7 +224,10 @@ mod tests {
     fn reads_query_params() {
         let q = "access_token=abc123&scope=chat%3Aread+chat%3Aedit&state=xyz&token_type=bearer";
         assert_eq!(query_param(q, "access_token").as_deref(), Some("abc123"));
-        assert_eq!(query_param(q, "scope").as_deref(), Some("chat:read chat:edit"));
+        assert_eq!(
+            query_param(q, "scope").as_deref(),
+            Some("chat:read chat:edit")
+        );
         assert_eq!(query_param(q, "missing"), None);
         assert_eq!(percent_decode("100%"), "100%");
         assert_eq!(percent_decode("%zz"), "%zz");

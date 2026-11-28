@@ -36,7 +36,9 @@ pub fn allowed_in_chat_window(url: &tauri::Url) -> bool {
     if url.scheme() != "https" {
         return false;
     }
-    let Some(host) = url.host_str() else { return false };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
     let under = |domain: &str| host == domain || host.ends_with(&format!(".{domain}"));
     under("twitch.tv")
         || under("kick.com")
@@ -46,7 +48,10 @@ pub fn allowed_in_chat_window(url: &tauri::Url) -> bool {
 
 fn find_chatterino() -> Option<PathBuf> {
     let mut candidates = Vec::new();
-    for (var, sub) in [("LOCALAPPDATA", "Programs\\Chatterino"), ("PROGRAMFILES", "Chatterino")] {
+    for (var, sub) in [
+        ("LOCALAPPDATA", "Programs\\Chatterino"),
+        ("PROGRAMFILES", "Chatterino"),
+    ] {
         if let Some(base) = std::env::var_os(var) {
             candidates.push(Path::new(&base).join(sub).join("chatterino.exe"));
         }
@@ -75,7 +80,9 @@ fn panel_bounds(window: &tauri::Window) -> Option<(LogicalPosition<f64>, Logical
 
 /// Keep the chat panel on the right edge when StreamHub's window is resized.
 pub fn layout_panel(app: &AppHandle) {
-    let (Some(window), Some(panel)) = (app.get_window("main"), app.get_webview(PANEL)) else { return };
+    let (Some(window), Some(panel)) = (app.get_window("main"), app.get_webview(PANEL)) else {
+        return;
+    };
     if let Some((position, size)) = panel_bounds(&window) {
         let _ = panel.set_position(position);
         let _ = panel.set_size(size);
@@ -83,14 +90,18 @@ pub fn layout_panel(app: &AppHandle) {
 }
 
 fn open_panel(app: &AppHandle, platform: Platform, channel: &str) -> Result<(), String> {
-    let url: tauri::Url = chat_url(platform, channel).parse().map_err(|e| format!("{e}"))?;
+    let url: tauri::Url = chat_url(platform, channel)
+        .parse()
+        .map_err(|e| format!("{e}"))?;
     if let Some(panel) = app.get_webview(PANEL) {
         panel.navigate(url).map_err(|e| e.to_string())?;
         layout_panel(app);
         return Ok(());
     }
 
-    let window = app.get_window("main").ok_or("StreamHub's window is missing")?;
+    let window = app
+        .get_window("main")
+        .ok_or("StreamHub's window is missing")?;
     let (position, size) = panel_bounds(&window).ok_or("Couldn't size the chat panel")?;
     let browser = app.clone();
     let builder = WebviewBuilder::new(PANEL, WebviewUrl::External(url)).on_navigation(move |url| {
@@ -103,7 +114,9 @@ fn open_panel(app: &AppHandle, platform: Platform, channel: &str) -> Result<(), 
         }
         false
     });
-    window.add_child(builder, position, size).map_err(|e| e.to_string())?;
+    window
+        .add_child(builder, position, size)
+        .map_err(|e| e.to_string())?;
     crate::crunchyroll::layout(app);
     Ok(())
 }
@@ -121,7 +134,12 @@ pub async fn close_chat(app: AppHandle) -> Result<(), String> {
 /// Open a channel's chat. Async: creating a webview in a synchronous command deadlocks on Windows
 /// (that froze the old chat window and StreamHub's buttons).
 #[tauri::command]
-pub async fn open_chat(app: AppHandle, platform: Platform, channel: String, provider: ChatProvider) -> Result<(), String> {
+pub async fn open_chat(
+    app: AppHandle,
+    platform: Platform,
+    channel: String,
+    provider: ChatProvider,
+) -> Result<(), String> {
     let channel = channel.to_ascii_lowercase();
     let valid = match platform {
         Platform::Twitch => valid_channel(&channel),
@@ -138,15 +156,19 @@ pub async fn open_chat(app: AppHandle, platform: Platform, channel: String, prov
             .map_err(|e| format!("Couldn't open the browser: {e}")),
         // Chatterino is Twitch only: Kick chat opens in the chat panel
         (ChatProvider::Chatterino, Platform::Twitch) => {
-            let exe = find_chatterino()
-                .ok_or("Chatterino wasn't found. Install it or pick another chat option in Settings.")?;
+            let exe = find_chatterino().ok_or(
+                "Chatterino wasn't found. Install it or pick another chat option in Settings.",
+            )?;
             let mut command = Command::new(exe);
             command
                 .args(["--channels", &format!("t:{channel}")])
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
-            command.spawn().map(|_| ()).map_err(|e| format!("Couldn't start Chatterino: {e}"))
+            command
+                .spawn()
+                .map(|_| ())
+                .map_err(|e| format!("Couldn't start Chatterino: {e}"))
         }
         _ => open_panel(&app, platform, &channel),
     }
@@ -162,8 +184,14 @@ mod tests {
 
     #[test]
     fn chat_urls() {
-        assert_eq!(chat_url(Platform::Twitch, "abc"), "https://www.twitch.tv/popout/abc/chat?popout=");
-        assert_eq!(chat_url(Platform::Kick, "a-b"), "https://kick.com/popout/a-b/chat");
+        assert_eq!(
+            chat_url(Platform::Twitch, "abc"),
+            "https://www.twitch.tv/popout/abc/chat?popout="
+        );
+        assert_eq!(
+            chat_url(Platform::Kick, "a-b"),
+            "https://kick.com/popout/a-b/chat"
+        );
     }
 
     #[test]

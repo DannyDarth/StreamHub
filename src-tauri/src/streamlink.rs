@@ -157,16 +157,27 @@ pub struct StreamlinkInfo {
 }
 
 pub fn valid_channel(channel: &str) -> bool {
-    !channel.is_empty() && channel.len() <= 25 && channel.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    !channel.is_empty()
+        && channel.len() <= 25
+        && channel
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Kick channel slugs also allow dashes.
 pub fn valid_kick_slug(slug: &str) -> bool {
-    !slug.is_empty() && slug.len() <= 64 && slug.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    !slug.is_empty()
+        && slug.len() <= 64
+        && slug
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 pub fn valid_quality(quality: &str) -> bool {
-    !quality.is_empty() && quality.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ',')
+    !quality.is_empty()
+        && quality
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ',')
 }
 
 fn is_file(path: &Path) -> bool {
@@ -180,7 +191,11 @@ pub fn find_streamlink(custom: Option<&str>) -> Option<PathBuf> {
         return is_file(&path).then_some(path);
     }
 
-    let names: &[&str] = if cfg!(windows) { &["streamlink.exe", "streamlinkw.exe"] } else { &["streamlink"] };
+    let names: &[&str] = if cfg!(windows) {
+        &["streamlink.exe", "streamlinkw.exe"]
+    } else {
+        &["streamlink"]
+    };
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
@@ -208,11 +223,20 @@ pub fn find_plugin(app: &AppHandle) -> Option<Plugin> {
     if let Ok(dir) = app.path().resource_dir() {
         candidates.push(dir.join("streamlink-plugins"));
     }
-    if let Some(dir) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf)) {
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+    {
         candidates.push(dir.join("streamlink-plugins"));
     }
-    if let Some(dir) = candidates.into_iter().find(|dir| dir.join("twitch.py").is_file()) {
-        return Some(Plugin { dir: Some(dir), bundled: true });
+    if let Some(dir) = candidates
+        .into_iter()
+        .find(|dir| dir.join("twitch.py").is_file())
+    {
+        return Some(Plugin {
+            dir: Some(dir),
+            bundled: true,
+        });
     }
 
     let appdata = std::env::var_os("APPDATA")?;
@@ -221,7 +245,10 @@ pub fn find_plugin(app: &AppHandle) -> Option<Plugin> {
         .join("plugins")
         .join("twitch.py")
         .is_file()
-        .then_some(Plugin { dir: None, bundled: false })
+        .then_some(Plugin {
+            dir: None,
+            bundled: false,
+        })
 }
 
 /// Cut the long query strings (access tokens) out of URLs in an error message.
@@ -263,7 +290,12 @@ pub fn build_args(
         // StreamHub's own player plays the stream: Streamlink only finds its (ad-free) address
         args.push("--stream-url".into());
     } else {
-        if let Some(player) = settings.player_path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(player) = settings
+            .player_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             args.push("--player".into());
             args.push(player.into());
         }
@@ -274,7 +306,11 @@ pub fn build_args(
     if low_latency {
         args.push("--twitch-low-latency".into());
     }
-    args.extend(buffer_args(settings.buffer.as_deref(), low_latency).iter().map(OsString::from));
+    args.extend(
+        buffer_args(settings.buffer.as_deref(), low_latency)
+            .iter()
+            .map(OsString::from),
+    );
     if let Some(plugin) = plugin {
         if let Some(dir) = &plugin.dir {
             args.push("--plugin-dirs".into());
@@ -328,7 +364,11 @@ impl Runner {
     fn emit_status(&self, pid: u32, status: &Status) {
         let _ = self.app.emit(
             "adblock-status",
-            StatusEvent { id: self.id, channel: &self.channel, status },
+            StatusEvent {
+                id: self.id,
+                channel: &self.channel,
+                status,
+            },
         );
         if self.settings.badge && self.plugin.is_some() {
             badge::show(&self.app, pid, status);
@@ -337,7 +377,10 @@ impl Runner {
 
     fn run(self) {
         let mut rotation = ProxyRotation::new(if self.settings.proxies.is_empty() {
-            adblock::DEFAULT_PROXIES.iter().map(|s| s.to_string()).collect()
+            adblock::DEFAULT_PROXIES
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
         } else {
             self.settings.proxies.clone()
         });
@@ -347,7 +390,13 @@ impl Runner {
         let code = loop {
             let mut command = Command::new(&self.exe);
             command
-                .args(build_args(self.platform, &self.channel, &self.settings, self.plugin.as_ref(), &rotation))
+                .args(build_args(
+                    self.platform,
+                    &self.channel,
+                    &self.settings,
+                    self.plugin.as_ref(),
+                    &rotation,
+                ))
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -379,10 +428,16 @@ impl Runner {
 
             if self.plugin.is_some() {
                 let detail = match rotation.first() {
-                    Some(server) => format!("Trying {}", server.split_once("://").map_or(server, |(_, h)| h)),
+                    Some(server) => format!(
+                        "Trying {}",
+                        server.split_once("://").map_or(server, |(_, h)| h)
+                    ),
                     None => String::new(),
                 };
-                self.emit_status(pid, &tracker.status(Level::Info, "Finding ad-free stream", detail));
+                self.emit_status(
+                    pid,
+                    &tracker.status(Level::Info, "Finding ad-free stream", detail),
+                );
             }
 
             let mut switching = false;
@@ -394,7 +449,9 @@ impl Runner {
                 } else if line.contains("][error]") && last_error.is_none() {
                     last_error = Some(message.to_string());
                 }
-                let Some(event) = adblock::parse_event(&line) else { continue };
+                let Some(event) = adblock::parse_event(&line) else {
+                    continue;
+                };
                 if event != Event::AdDetected {
                     if let Some(status) = tracker.record(&event) {
                         self.emit_status(pid, &status);
@@ -409,7 +466,11 @@ impl Runner {
                     switching = true;
                     let next = rotation.first().unwrap_or_default();
                     let next = next.split_once("://").map_or(next, |(_, h)| h).to_string();
-                    let status = tracker.status(Level::Warn, "Switching proxy", format!("Ad detected, trying {next}"));
+                    let status = tracker.status(
+                        Level::Warn,
+                        "Switching proxy",
+                        format!("Ad detected, trying {next}"),
+                    );
                     self.emit_status(pid, &status);
                     self.session.kill();
                 } else {
@@ -437,13 +498,20 @@ impl Runner {
             Some(0) => None,
             _ if self.session.stopped.load(Ordering::SeqCst) => None,
             _ => Some(explain_error(
-                last_error.as_deref().unwrap_or("Streamlink stopped unexpectedly"),
+                last_error
+                    .as_deref()
+                    .unwrap_or("Streamlink stopped unexpectedly"),
                 self.plugin.is_some() && !self.settings.direct,
             )),
         };
         let _ = self.app.emit(
             "stream-ended",
-            EndedEvent { id: self.id, channel: &self.channel, code, error },
+            EndedEvent {
+                id: self.id,
+                channel: &self.channel,
+                code,
+                error,
+            },
         );
         let streams = self.app.state::<Streams>();
         let mut sessions = streams.sessions.lock().unwrap();
@@ -494,7 +562,16 @@ pub fn watch(
     if settings.play_in_app {
         return Err("Use resolve_stream for StreamHub's own player".into());
     }
-    let runner = Runner { app, platform, id, channel, settings, exe, plugin, session };
+    let runner = Runner {
+        app,
+        platform,
+        id,
+        channel,
+        settings,
+        exe,
+        plugin,
+        session,
+    };
     std::thread::spawn(move || runner.run());
     Ok(id)
 }
@@ -568,7 +645,15 @@ pub async fn resolve_stream(
             Err(_) => {}
         },
         Platform::Twitch if settings.proxy_enabled && find_plugin(&app).is_some() => {
-            match crate::fastplay::twitch(&channel, &settings.quality, &settings.proxies, attempt, settings.direct).await {
+            match crate::fastplay::twitch(
+                &channel,
+                &settings.quality,
+                &settings.proxies,
+                attempt,
+                settings.direct,
+            )
+            .await
+            {
                 Ok(found) => {
                     return Ok(ResolvedStream {
                         url: crate::fastplay::proxied(&found.url),
@@ -580,11 +665,11 @@ pub async fn resolve_stream(
                     })
                 }
                 Err(e) if e == "offline" => return Err("This channel isn't live.".into()),
-                Err(e) if e == "no-ad-free" => {
-                    return Err("No ad-free stream is available right now: every proxy failed or served ads. \
+                Err(e) if e == "no-ad-free" => return Err(
+                    "No ad-free stream is available right now: every proxy failed or served ads. \
                                 StreamHub won't play the stream with ads."
-                        .into())
-                }
+                        .into(),
+                ),
                 Err(_) => {}
             }
         }
@@ -603,15 +688,20 @@ pub async fn resolve_stream(
         None
     };
     let mut rotation = ProxyRotation::new(if settings.proxies.is_empty() {
-        adblock::DEFAULT_PROXIES.iter().map(|s| s.to_string()).collect()
+        adblock::DEFAULT_PROXIES
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
     } else {
         settings.proxies.clone()
     });
     for _ in 0..attempt {
         if !rotation.switch() {
-            return Err("No ad-free stream is available right now: every proxy has been tried. \
+            return Err(
+                "No ad-free stream is available right now: every proxy has been tried. \
                         StreamHub won't play the stream with ads."
-                .into());
+                    .into(),
+            );
         }
     }
     let args = build_args(platform, &channel, &settings, plugin.as_ref(), &rotation);
@@ -659,7 +749,12 @@ pub async fn resolve_stream(
                 qualities: Vec::new(),
             })
         }
-        _ => Err(explain_error(error.as_deref().unwrap_or("Streamlink couldn't find the stream"), ad_free_only)),
+        _ => Err(explain_error(
+            error
+                .as_deref()
+                .unwrap_or("Streamlink couldn't find the stream"),
+            ad_free_only,
+        )),
     }
 }
 
@@ -719,11 +814,23 @@ mod tests {
     fn buffer_settings() {
         assert!(buffer_args(None, false).is_empty());
         assert!(buffer_args(Some("normal"), false).is_empty());
-        assert_eq!(buffer_args(Some("more"), false)[..2], ["--hls-live-edge", "6"]);
-        assert!(buffer_args(Some("most"), true).is_empty(), "low latency keeps its own buffer");
+        assert_eq!(
+            buffer_args(Some("more"), false)[..2],
+            ["--hls-live-edge", "6"]
+        );
+        assert!(
+            buffer_args(Some("most"), true).is_empty(),
+            "low latency keeps its own buffer"
+        );
         let mut s = settings();
         s.buffer = Some("most".into());
-        let args = strings(build_args(Platform::Kick, "x", &s, None, &ProxyRotation::new(vec![])));
+        let args = strings(build_args(
+            Platform::Kick,
+            "x",
+            &s,
+            None,
+            &ProxyRotation::new(vec![]),
+        ));
         assert!(args.windows(2).any(|w| w == ["--hls-live-edge", "10"]));
     }
 
@@ -732,9 +839,27 @@ mod tests {
         let mut s = settings();
         s.play_in_app = true;
         s.player_path = Some("vlc.exe".into());
-        let args = strings(build_args(Platform::Kick, "x", &s, None, &ProxyRotation::new(vec![])));
-        assert_eq!(args, ["--loglevel", "info", "--stream-url", "https://kick.com/x", "best"]);
-        let lines = vec!["[plugins.twitch][info] Using playlist proxy 'https://a/'".to_string(), "https://cdn/x.m3u8".to_string()];
+        let args = strings(build_args(
+            Platform::Kick,
+            "x",
+            &s,
+            None,
+            &ProxyRotation::new(vec![]),
+        ));
+        assert_eq!(
+            args,
+            [
+                "--loglevel",
+                "info",
+                "--stream-url",
+                "https://kick.com/x",
+                "best"
+            ]
+        );
+        let lines = vec![
+            "[plugins.twitch][info] Using playlist proxy 'https://a/'".to_string(),
+            "https://cdn/x.m3u8".to_string(),
+        ];
         assert_eq!(first_url(&lines).as_deref(), Some("https://cdn/x.m3u8"));
     }
 
@@ -744,10 +869,23 @@ mod tests {
         s.quality = "720p60".into();
         s.low_latency = true;
         let rotation = ProxyRotation::new(vec![]);
-        let args = strings(build_args(Platform::Kick, "some-streamer", &s, None, &rotation));
+        let args = strings(build_args(
+            Platform::Kick,
+            "some-streamer",
+            &s,
+            None,
+            &rotation,
+        ));
         assert_eq!(
             args,
-            ["--loglevel", "info", "--title", "some-streamer - StreamHub", "https://kick.com/some-streamer", "720p60,best"]
+            [
+                "--loglevel",
+                "info",
+                "--title",
+                "some-streamer - StreamHub",
+                "https://kick.com/some-streamer",
+                "720p60,best"
+            ]
         );
         assert!(valid_kick_slug("some-streamer_1"));
         assert!(!valid_kick_slug("a/b"));
@@ -764,7 +902,10 @@ mod tests {
              (HTTPSConnectionPool(host='usher.ttvnw.net', port=443): Max retries exceeded with url: \
              /api/v2/channel/hls/x.m3u8… (Caused by ProxyError('Unable to connect to proxy')))"
         );
-        assert!(explain_error("No playable streams found on this URL: twitch.tv/x", true).starts_with("No ad-free proxy"));
+        assert!(
+            explain_error("No playable streams found on this URL: twitch.tv/x", true)
+                .starts_with("No ad-free proxy")
+        );
         assert_eq!(
             explain_error("No playable streams found on this URL: twitch.tv/x", false),
             "No playable streams found on this URL: twitch.tv/x"
@@ -775,15 +916,32 @@ mod tests {
     fn args_with_bundled_plugin() {
         let mut s = settings();
         s.backup_stream = true;
-        let plugin = Plugin { dir: Some(PathBuf::from("plugins")), bundled: true };
+        let plugin = Plugin {
+            dir: Some(PathBuf::from("plugins")),
+            bundled: true,
+        };
         let rotation = ProxyRotation::new(vec!["https://a".into(), "https://b".into()]);
-        let args = strings(build_args(Platform::Twitch, "chan", &s, Some(&plugin), &rotation));
+        let args = strings(build_args(
+            Platform::Twitch,
+            "chan",
+            &s,
+            Some(&plugin),
+            &rotation,
+        ));
         assert_eq!(
             args,
             [
-                "--loglevel", "info", "--title", "chan - StreamHub", "--plugin-dirs", "plugins",
-                "--twitch-proxy-playlist", "https://a,https://b", "--twitch-backup-stream",
-                "twitch.tv/chan", "best",
+                "--loglevel",
+                "info",
+                "--title",
+                "chan - StreamHub",
+                "--plugin-dirs",
+                "plugins",
+                "--twitch-proxy-playlist",
+                "https://a,https://b",
+                "--twitch-backup-stream",
+                "twitch.tv/chan",
+                "best",
             ]
         );
     }
@@ -791,15 +949,30 @@ mod tests {
     #[test]
     fn never_falls_back_unless_direct_is_on() {
         let mut s = settings();
-        let plugin = Plugin { dir: None, bundled: false };
+        let plugin = Plugin {
+            dir: None,
+            bundled: false,
+        };
         let rotation = ProxyRotation::new(vec!["https://a".into()]);
-        let args = strings(build_args(Platform::Twitch, "chan", &s, Some(&plugin), &rotation));
+        let args = strings(build_args(
+            Platform::Twitch,
+            "chan",
+            &s,
+            Some(&plugin),
+            &rotation,
+        ));
         assert!(!args.contains(&"--twitch-proxy-playlist-fallback".to_string()));
         assert!(!args.contains(&"--plugin-dirs".to_string()));
 
         s.direct = true;
         s.backup_stream = true; // needs the bundled plugin
-        let args = strings(build_args(Platform::Twitch, "chan", &s, Some(&plugin), &rotation));
+        let args = strings(build_args(
+            Platform::Twitch,
+            "chan",
+            &s,
+            Some(&plugin),
+            &rotation,
+        ));
         assert!(args.contains(&"--twitch-proxy-playlist-fallback".to_string()));
         assert!(!args.contains(&"--twitch-backup-stream".to_string()));
     }
