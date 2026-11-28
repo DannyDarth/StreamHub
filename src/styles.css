@@ -643,3 +643,5 @@ body.player-full { overflow: hidden; }
 .yt-card:hover .yt-later, .yt-later:focus, .yt-later:disabled, .yt-later.saved { opacity: 1; }
 .yt-later:hover { background: #333; }
 .yt-remove { z-index: 1; }
+.yt-filter { display: flex; align-items: center; gap: 10px; margin: 4px 0 16px; font-size: 13.5px; }
+.yt-filter select { max-width: 320px; }
