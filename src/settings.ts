@@ -31,6 +31,7 @@ export const DEFAULTS: Settings = {
   sbActions: { ...DEFAULT_ACTIONS },
   audioLanguage: "en",
   ytAddToHistory: true,
+  ytComments: true,
   crPlayInWindow: false,
 };
 

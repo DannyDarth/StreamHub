@@ -617,3 +617,22 @@ body.player-full { overflow: hidden; }
 }
 .yt-card:hover .yt-remove, .yt-remove:focus, .yt-remove:disabled { opacity: 1; }
 .yt-remove:hover { background: #c00; }
+
+/* YouTube comments beside the video */
+.player-main { flex: 1; min-height: 0; display: flex; }
+.player-main .player-stage { flex: 1; min-width: 0; }
+.player-comments { display: none; }
+#player-host.full.with-comments .player-comments {
+  display: block; width: 380px; flex: none; overflow-y: auto; background: var(--bg);
+  border-left: 1px solid var(--line); padding: 12px 16px;
+}
+.comments-title { margin: 4px 0 12px; font-size: 15px; }
+.comment { display: flex; gap: 10px; margin-bottom: 16px; }
+.comment-avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; background: var(--panel-2); object-fit: cover; }
+.comment-body { min-width: 0; flex: 1; }
+.comment-head { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.comment-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.comment-head .muted { font-size: 12px; flex: none; }
+.comment-text { font-size: 13.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
+.comment-meta { font-size: 12px; margin-top: 4px; }
+.comments-note { font-size: 13px; text-align: center; margin: 16px 0; }
