@@ -34,7 +34,11 @@ pub struct KickChannel {
 }
 
 fn text(value: &Value) -> Option<String> {
-    value.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 /// Kick sometimes returns an image as a srcset ("url 1x, url 2x") or an object.
@@ -60,7 +64,11 @@ pub fn parse_channel(slug: &str, data: &Value) -> KickChannel {
         slug: slug.to_string(),
         name: text(&user["username"]).unwrap_or_else(|| slug.to_string()),
         live: is_live,
-        title: if is_live { text(&live["session_title"]).unwrap_or_default() } else { String::new() },
+        title: if is_live {
+            text(&live["session_title"]).unwrap_or_default()
+        } else {
+            String::new()
+        },
         category: if is_live {
             text(&live["categories"][0]["name"])
                 .or_else(|| text(&live["category"]["name"]))
@@ -68,10 +76,24 @@ pub fn parse_channel(slug: &str, data: &Value) -> KickChannel {
         } else {
             String::new()
         },
-        viewers: if is_live { live["viewer_count"].as_u64().or_else(|| live["viewers"].as_u64()) } else { None },
-        thumbnail: if is_live { image_url(&live["thumbnail"]) } else { None },
+        viewers: if is_live {
+            live["viewer_count"]
+                .as_u64()
+                .or_else(|| live["viewers"].as_u64())
+        } else {
+            None
+        },
+        thumbnail: if is_live {
+            image_url(&live["thumbnail"])
+        } else {
+            None
+        },
         avatar: text(&user["profile_pic"]).filter(|u| u.starts_with("https://")),
-        started_at: if is_live { text(&live["created_at"]).or_else(|| text(&live["start_time"])) } else { None },
+        started_at: if is_live {
+            text(&live["created_at"]).or_else(|| text(&live["start_time"]))
+        } else {
+            None
+        },
         bio: text(&user["bio"]),
         followers: data["followers_count"].as_u64(),
         error: None,
@@ -274,7 +296,9 @@ pub fn ensure_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .inner_size(400.0, 300.0)
         .on_navigation(move |url| fetcher_navigation(&nav_app, url))
         .on_page_load(move |_, payload| {
-            if matches!(payload.event(), PageLoadEvent::Finished) && payload.url().host_str() == Some("kick.com") {
+            if matches!(payload.event(), PageLoadEvent::Finished)
+                && payload.url().host_str() == Some("kick.com")
+            {
                 let _ = load_app.state::<KickFetcher>().ready.send_replace(true);
             }
         })
@@ -302,7 +326,12 @@ fn to_channel(result: FetchResult) -> KickChannel {
         0 => format!("Couldn't reach Kick: {}", result.error.unwrap_or_default()),
         code => format!("Kick returned {code}"),
     };
-    KickChannel { name: result.slug.clone(), slug: result.slug, error: Some(error), ..Default::default() }
+    KickChannel {
+        name: result.slug.clone(),
+        slug: result.slug,
+        error: Some(error),
+        ..Default::default()
+    }
 }
 
 /// The signed-in user's session token. kick.com's own pages read it from this cookie and send it
@@ -382,7 +411,10 @@ async fn run_in_kick(app: &AppHandle, body: &str) -> Result<String, String> {
             fetcher.pending.lock().unwrap().remove(&id);
             // reload kick.com for the next try
             let _ = fetcher.ready.send_replace(false);
-            let _ = window.eval(&format!("location.href = {}", serde_json::to_string(PAGE).unwrap()));
+            let _ = window.eval(&format!(
+                "location.href = {}",
+                serde_json::to_string(PAGE).unwrap()
+            ));
             return Err("Kick didn't answer in time".into());
         }
     };
@@ -394,7 +426,10 @@ fn items(data: &str) -> Result<Value, String> {
     match value["status"].as_u64() {
         Some(200) => Ok(value["items"].clone()),
         Some(401) | Some(403) => Err("not-signed-in".into()),
-        Some(0) => Err(format!("Couldn't reach Kick: {}", value["error"].as_str().unwrap_or_default())),
+        Some(0) => Err(format!(
+            "Couldn't reach Kick: {}",
+            value["error"].as_str().unwrap_or_default()
+        )),
         Some(code) => Err(format!("Kick returned {code}")),
         None => Err("Unexpected answer from Kick".into()),
     }
@@ -415,7 +450,13 @@ pub async fn kick_followed(app: AppHandle, cursor: Option<Value>) -> Result<Valu
         Some(Value::String(s)) if s.len() <= 200 => serde_json::to_string(&s).unwrap(),
         _ => "0".into(),
     };
-    items(&run_in_kick(&app, &format!("{SESSION}{}", FOLLOWED_PAGE.replace("__CURSOR__", &cursor))).await?)
+    items(
+        &run_in_kick(
+            &app,
+            &format!("{SESSION}{}", FOLLOWED_PAGE.replace("__CURSOR__", &cursor)),
+        )
+        .await?,
+    )
 }
 
 /// Open kick.com in a StreamHub window to sign in (or out). Kick's sign-in is kick.com's own page:
@@ -429,26 +470,30 @@ pub async fn kick_login(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let browser = app.clone();
-    let window = WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::External("https://kick.com/".parse().unwrap()))
-        .title("Sign in to Kick - StreamHub")
-        .inner_size(1100.0, 800.0)
-        .center()
-        .on_navigation(move |url| {
-            let host = url.host_str().unwrap_or_default();
-            let allowed = url.scheme() == "https"
-                && (host == "kick.com"
-                    || host.ends_with(".kick.com")
-                    || host == "accounts.google.com"
-                    || host == "appleid.apple.com"
-                    || host == "challenges.cloudflare.com");
-            if !allowed && (url.scheme() == "https" || url.scheme() == "http") {
-                use tauri_plugin_opener::OpenerExt;
-                let _ = browser.opener().open_url(url.as_str(), None::<&str>);
-            }
-            allowed || url.scheme() == "about"
-        })
-        .build()
-        .map_err(|e| e.to_string())?;
+    let window = WebviewWindowBuilder::new(
+        &app,
+        LABEL,
+        WebviewUrl::External("https://kick.com/".parse().unwrap()),
+    )
+    .title("Sign in to Kick - StreamHub")
+    .inner_size(1100.0, 800.0)
+    .center()
+    .on_navigation(move |url| {
+        let host = url.host_str().unwrap_or_default();
+        let allowed = url.scheme() == "https"
+            && (host == "kick.com"
+                || host.ends_with(".kick.com")
+                || host == "accounts.google.com"
+                || host == "appleid.apple.com"
+                || host == "challenges.cloudflare.com");
+        if !allowed && (url.scheme() == "https" || url.scheme() == "http") {
+            use tauri_plugin_opener::OpenerExt;
+            let _ = browser.opener().open_url(url.as_str(), None::<&str>);
+        }
+        allowed || url.scheme() == "about"
+    })
+    .build()
+    .map_err(|e| e.to_string())?;
     let closed = app.clone();
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::Destroyed = event {
@@ -503,7 +548,9 @@ pub async fn kick_browse(
     slug: Option<String>,
     language: Option<String>,
 ) -> Result<Value, String> {
-    let slug = slug.map(|s| s.trim().to_ascii_lowercase()).filter(|s| !s.is_empty());
+    let slug = slug
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty());
     if slug.as_deref().is_some_and(|s| !valid_kick_slug(s)) {
         return Err("Invalid category".into());
     }
@@ -523,14 +570,21 @@ pub async fn kick_browse(
 /// Check which of these Kick channels are live.
 #[tauri::command]
 pub async fn kick_channels(app: AppHandle, slugs: Vec<String>) -> Result<Vec<KickChannel>, String> {
-    let mut slugs: Vec<String> = slugs.into_iter().map(|s| s.trim().to_ascii_lowercase()).collect();
+    let mut slugs: Vec<String> = slugs
+        .into_iter()
+        .map(|s| s.trim().to_ascii_lowercase())
+        .collect();
     slugs.retain(|s| valid_kick_slug(s));
     slugs.dedup();
     if slugs.is_empty() {
         return Ok(Vec::new());
     }
 
-    let data = run_in_kick(&app, &CHANNELS.replace("__SLUGS__", &serde_json::to_string(&slugs).unwrap())).await?;
+    let data = run_in_kick(
+        &app,
+        &CHANNELS.replace("__SLUGS__", &serde_json::to_string(&slugs).unwrap()),
+    )
+    .await?;
     let results: Vec<FetchResult> = serde_json::from_str(&data).map_err(|e| e.to_string())?;
     Ok(results.into_iter().map(to_channel).collect())
 }
@@ -585,19 +639,29 @@ mod tests {
 
     #[test]
     fn fetch_results() {
-        let offline: FetchResult = serde_json::from_value(json!({ "slug": "a", "status": 403 })).unwrap();
-        assert_eq!(to_channel(offline).error.as_deref(), Some("Kick returned 403"));
+        let offline: FetchResult =
+            serde_json::from_value(json!({ "slug": "a", "status": 403 })).unwrap();
+        assert_eq!(
+            to_channel(offline).error.as_deref(),
+            Some("Kick returned 403")
+        );
         let ok: FetchResult = serde_json::from_value(json!({
             "slug": "b", "status": 200, "data": { "user": { "username": "B" }, "livestream": null }
         }))
         .unwrap();
         let channel = to_channel(ok);
-        assert_eq!((channel.name.as_str(), channel.live, channel.error), ("B", false, None));
+        assert_eq!(
+            (channel.name.as_str(), channel.live, channel.error),
+            ("B", false, None)
+        );
     }
 
     #[test]
     fn image_urls() {
-        assert_eq!(image_url(&json!("https://x/a.png")), Some("https://x/a.png".into()));
+        assert_eq!(
+            image_url(&json!("https://x/a.png")),
+            Some("https://x/a.png".into())
+        );
         assert_eq!(image_url(&json!({ "url": "http://x/a.png" })), None);
         assert_eq!(image_url(&json!(null)), None);
     }

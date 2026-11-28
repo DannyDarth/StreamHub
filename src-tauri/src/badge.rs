@@ -99,7 +99,14 @@ fn run_script(pid: u32) -> String {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     std::process::Command::new("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", SCRIPT])
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            SCRIPT,
+        ])
         .env("STREAMHUB_PID", pid.to_string())
         .env("STREAMHUB_BADGE_TITLE", TITLE)
         .creation_flags(CREATE_NO_WINDOW)

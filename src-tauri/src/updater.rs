@@ -11,7 +11,8 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 
-const RELEASES: &str = "https://api.github.com/repos/DannyDarth/StreamHub/releases/tags/streamhub-windows-v";
+const RELEASES: &str =
+    "https://api.github.com/repos/DannyDarth/StreamHub/releases/tags/streamhub-windows-v";
 const DOWNLOADS: &str = "https://github.com/DannyDarth/StreamHub/releases/download/";
 
 /// The downloaded, checked installer waiting to be run.
@@ -22,7 +23,10 @@ pub struct Update {
 
 pub fn valid_version(version: &str) -> bool {
     let parts: Vec<&str> = version.split('.').collect();
-    parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit()))
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit()))
 }
 
 /// An installed copy has the installer's uninstall.exe next to it; the portable build doesn't.
@@ -39,7 +43,8 @@ pub fn checksum_for(sums: &str, file: &str) -> Option<String> {
         let mut parts = line.split_whitespace();
         let hash = parts.next()?;
         let name = parts.next()?.trim_start_matches('*');
-        (name == file && hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit())).then(|| hash.to_ascii_lowercase())
+        (name == file && hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit()))
+            .then(|| hash.to_ascii_lowercase())
     })
 }
 
@@ -86,11 +91,14 @@ pub async fn download_update(app: AppHandle, version: String) -> Result<(), Stri
         return Err("Invalid version".into());
     }
     if !is_installed() {
-        return Err("This is the portable build: download the new version from the release page".into());
+        return Err(
+            "This is the portable build: download the new version from the release page".into(),
+        );
     }
     let client = client()?;
-    let release: Release = serde_json::from_str(&download_text(&client, &format!("{RELEASES}{version}")).await?)
-        .map_err(|e| e.to_string())?;
+    let release: Release =
+        serde_json::from_str(&download_text(&client, &format!("{RELEASES}{version}")).await?)
+            .map_err(|e| e.to_string())?;
     if release.draft || release.prerelease {
         return Err("Not a published release".into());
     }
@@ -107,14 +115,21 @@ pub async fn download_update(app: AppHandle, version: String) -> Result<(), Stri
     let expected = checksum_for(&download_text(&client, &sums_url).await?, &installer_name)
         .ok_or("SHA256SUMS.txt doesn't list the installer")?;
 
-    let res = client.get(&installer_url).send().await.map_err(|e| e.to_string())?;
+    let res = client
+        .get(&installer_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
     if !res.status().is_success() {
         return Err(format!("GitHub returned {}", res.status()));
     }
     let bytes = res.bytes().await.map_err(|e| e.to_string())?;
     let actual = format!("{:x}", Sha256::digest(&bytes));
     if actual != expected {
-        return Err("The downloaded installer doesn't match the release's checksum; it wasn't installed".into());
+        return Err(
+            "The downloaded installer doesn't match the release's checksum; it wasn't installed"
+                .into(),
+        );
     }
 
     let dir = std::env::temp_dir().join("StreamHub-update");
@@ -128,8 +143,12 @@ pub async fn download_update(app: AppHandle, version: String) -> Result<(), Stri
 /// Run the downloaded installer (with its progress window, no questions) once StreamHub has
 /// closed, then start StreamHub again. Returns false when no update is ready.
 pub fn apply(app: &AppHandle) -> bool {
-    let Some(installer) = app.state::<Update>().ready.lock().unwrap().take() else { return false };
-    let Ok(exe) = std::env::current_exe() else { return false };
+    let Some(installer) = app.state::<Update>().ready.lock().unwrap().take() else {
+        return false;
+    };
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
     run_installer(&installer, &exe).is_ok()
 }
 
@@ -150,14 +169,20 @@ fn run_installer(installer: &Path, _exe: &Path) -> std::io::Result<()> {
             .creation_flags(flags)
             .spawn()
     };
-    let result = spawn(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB).or_else(|_| spawn(DETACHED_PROCESS));
+    let result =
+        spawn(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB).or_else(|_| spawn(DETACHED_PROCESS));
     if let Ok(mut log) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(installer.with_file_name("update.log"))
     {
         let _ = match &result {
-            Ok(child) => writeln!(log, "Started {} (process {})", installer.display(), child.id()),
+            Ok(child) => writeln!(
+                log,
+                "Started {} (process {})",
+                installer.display(),
+                child.id()
+            ),
             Err(e) => writeln!(log, "Couldn't start {}: {e}", installer.display()),
         };
     }
