@@ -141,6 +141,10 @@ interface Comment {
   likes: string;
   replies: string;
   pinned: boolean;
+  /** YouTube's parameters for replying to it (null: replies are off). */
+  reply: string | null;
+  /** Replies you posted from StreamHub (shown under it). */
+  mine?: string[];
 }
 
 interface Comments {
@@ -151,6 +155,10 @@ interface Comments {
   loading: boolean;
   error: string;
   started: boolean;
+  /** YouTube's parameters for a new comment on the video (null: you can't comment). */
+  create: string | null;
+  /** The comment a reply box is open under. */
+  replyingTo: string | null;
 }
 
 /** Comments are hidden for now (the bar's Comments button), without changing the setting. */
@@ -161,14 +169,27 @@ function commentsWanted(c: Current): boolean {
 }
 
 function loadComments(session: Current) {
-  const cm = (session.comments ??= { list: [], next: null, count: "", off: false, loading: false, error: "", started: false });
+  const cm = (session.comments ??= {
+    list: [],
+    next: null,
+    count: "",
+    off: false,
+    loading: false,
+    error: "",
+    started: false,
+    create: null,
+    replyingTo: null,
+  });
   if (cm.loading || (cm.started && !cm.next)) return;
   cm.loading = true;
   cm.error = "";
   const token = cm.started ? cm.next : null;
   cm.started = true;
   renderComments();
-  invoke<{ comments: Comment[]; next: string | null; count: string; off: boolean }>("yt_comments", { id: session.channel, token })
+  invoke<{ comments: Comment[]; next: string | null; count: string; off: boolean; create: string | null }>("yt_comments", {
+    id: session.channel,
+    token,
+  })
     .then((page) => {
       if (current !== session) return;
       const seen = new Set(cm.list.map((x) => x.id));
@@ -176,6 +197,7 @@ function loadComments(session: Current) {
       cm.next = page.next;
       cm.count = page.count || cm.count;
       cm.off = page.off;
+      cm.create = page.create ?? cm.create;
     })
     .catch((e) => {
       if (current === session) cm.error = String(e);
@@ -214,7 +236,22 @@ function renderComments() {
           { class: "comment-meta muted" },
           x.likes && x.likes !== "0" ? `👍 ${x.likes}` : "",
           x.replies && x.replies !== "0" ? `  ·  ${x.replies} ${x.replies === "1" ? "reply" : "replies"}` : "",
+          x.reply
+            ? h(
+                "button",
+                {
+                  class: "link comment-reply-link",
+                  onclick: () => {
+                    cm.replyingTo = cm.replyingTo === x.id ? null : x.id;
+                    renderComments();
+                  },
+                },
+                "Reply",
+              )
+            : null,
         ),
+        ...(x.mine ?? []).map((t) => h("div", { class: "comment-mine" }, h("strong", {}, "You: "), t)),
+        cm.replyingTo === x.id && x.reply ? commentForm(c, "Reply…", x.reply, true, (t) => (x.mine = [...(x.mine ?? []), t])) : null,
       ),
     ),
   );
@@ -228,8 +265,53 @@ function renderComments() {
           ? h("p", { class: "muted comments-note" }, "No comments yet.")
           : null;
   const scroll = commentsPane.scrollTop;
-  commentsPane.replaceChildren(h("h3", { class: "comments-title" }, cm.count || "Comments"), ...items, ...(end ? [end] : []));
+  const add = cm.create
+    ? commentForm(c, "Add a comment…", cm.create, false, (t) =>
+        cm.list.unshift({ id: `mine-${Date.now()}`, author: "You", avatar: null, text: t, published: "just now", likes: "", replies: "", pinned: false, reply: null }),
+      )
+    : null;
+  commentsPane.replaceChildren(h("h3", { class: "comments-title" }, cm.count || "Comments"), ...(add ? [add] : []), ...items, ...(end ? [end] : []));
   commentsPane.scrollTop = scroll;
+}
+
+const drafts = new Map<string, string>();
+
+/** A box to post a comment or a reply (as your signed-in YouTube account). */
+function commentForm(session: Current, placeholder: string, params: string, reply: boolean, posted: (text: string) => void): HTMLElement {
+  const box = h("textarea", { class: "comment-input", rows: "2", placeholder, maxlength: "10000" }) as HTMLTextAreaElement;
+  // what you've typed survives the list being redrawn (more comments loading)
+  box.value = drafts.get(params) ?? "";
+  box.addEventListener("input", () => drafts.set(params, box.value));
+  const note = h("span", { class: "muted comment-note" }, "");
+  const send = h(
+    "button",
+    {
+      class: "player-btn",
+      onclick: () => {
+        const text = box.value.trim();
+        if (!text) return;
+        send.setAttribute("disabled", "");
+        note.textContent = "Posting…";
+        invoke("yt_comment_post", { params, text, reply })
+          .then(() => {
+            if (current !== session || !session.comments) return;
+            posted(text);
+            drafts.delete(params);
+            if (reply) session.comments.replyingTo = null;
+            renderComments();
+          })
+          .catch((e) => {
+            send.removeAttribute("disabled");
+            note.textContent = `Couldn't post: ${String(e)}`;
+          });
+      },
+    },
+    reply ? "Reply" : "Comment",
+  );
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send.click();
+  });
+  return h("div", { class: "comment-form" }, box, h("div", { class: "comment-form-row" }, note, send));
 }
 
 commentsPane.addEventListener("scroll", () => {

@@ -77,6 +77,8 @@ pub fn run() {
             youtube::yt_history_remove,
             youtube::yt_mark_watched,
             youtube::yt_comments,
+            youtube::yt_comment_post,
+            youtube::yt_subscribed,
             youtube::yt_watch_later,
             youtube::yt_watch_later_edit,
             youtube::yt_search,

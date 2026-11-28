@@ -645,3 +645,10 @@ body.player-full { overflow: hidden; }
 .yt-remove { z-index: 1; }
 .yt-filter { display: flex; align-items: center; gap: 10px; margin: 4px 0 16px; font-size: 13.5px; }
 .yt-filter select { max-width: 320px; }
+.comment-reply-link { margin-left: 10px; font-size: 12px; }
+.comment-mine { font-size: 13px; margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--accent); }
+.comment-form { margin: 0 0 16px; }
+.comment-input { width: 100%; resize: vertical; font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text); box-sizing: border-box; }
+.comment-form-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.comment-note { flex: 1; font-size: 12px; }
