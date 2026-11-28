@@ -652,3 +652,22 @@ body.player-full { overflow: hidden; }
   border: 1px solid var(--line); background: var(--panel); color: var(--text); box-sizing: border-box; }
 .comment-form-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .comment-note { flex: 1; font-size: 12px; }
+
+/* ---- YouTube Shorts ---- */
+.shorts { display: flex; justify-content: center; align-items: center; gap: 14px; height: calc(100vh - 175px); min-height: 420px; }
+.shorts-stage { position: relative; height: 100%; aspect-ratio: 9 / 16; max-width: 100%; background: #000; border-radius: 14px; overflow: hidden; cursor: pointer; }
+.shorts-poster, .shorts-slot, .shorts-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.shorts-poster.hidden { display: none; }
+.shorts-video { background: #000; display: block; }
+.shorts-info { position: absolute; left: 14px; right: 14px; bottom: 16px; color: #fff; pointer-events: none; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+.shorts-title { font-weight: 600; font-size: 14px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.shorts-channel { font-size: 12px; opacity: 0.85; margin-top: 3px; }
+.shorts-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255, 255, 255, 0.2); }
+.shorts-progress-fill { height: 100%; width: 0; background: #ff3b3b; }
+.shorts-notice, .shorts-toast { position: absolute; left: 50%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.75); color: #fff; padding: 6px 12px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; max-width: 85%; text-align: center; }
+.shorts-notice { top: 45%; }
+.shorts-toast { top: 14px; }
+.shorts-notice.visible, .shorts-toast.visible { opacity: 1; }
+.shorts-controls { display: flex; flex-direction: column; gap: 10px; }
+.shorts-btn { width: 44px; height: 44px; border-radius: 50%; border: none; background: #2a2a40; color: #fff; font-size: 17px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.shorts-btn:hover { background: #3a3a55; }

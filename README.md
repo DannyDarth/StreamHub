@@ -39,6 +39,7 @@ StreamHub 2 keeps its own settings: sign in to Twitch (and Kick) again after upg
 ### YouTube (beta)
 - Sign in on Google's own page (StreamHub never sees your password)
 - **Home**: your recommendations. **Subscriptions**: new videos grouped by day (Today, Yesterday, weekdays…), with live streams on top. Both keep loading as you scroll
+- **Shorts**: one vertical Short at a time, looping; scroll, ↑ ↓ or the buttons for the next one (no ads, SponsorBlock too)
 - Search videos and channels, and channel pages
 - **History**: your watch history by day, with Remove; videos watched in StreamHub are added to it (Settings → YouTube)
 - Picks up where you left off (StreamHub's saved position, or your progress on YouTube from any device)

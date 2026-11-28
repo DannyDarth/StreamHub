@@ -451,6 +451,36 @@ const HOME: &str = r#"
   return { status: 200, items: { videos: collect(r.data).videos, next: nextPage(r.data) } };
 "#;
 
+/// Shorts, one batch at a time: `{ shorts: [{ id, thumb }], next }`. The first batch starts a fresh
+/// sequence (personal when signed in); `next` continues it. Only real Shorts entries are kept.
+const SHORTS: &str = r#"
+  const token = __TOKEN__;
+  const signedIn = Boolean(cookie("SAPISID") || cookie("__Secure-3PAPISID"));
+  const shorts = [];
+  const seen = new Set();
+  const add = (cmd) => {
+    const e = cmd && cmd.reelWatchEndpoint;
+    if (!e || typeof e.videoId !== "string" || !/^[A-Za-z0-9_-]{11}$/.test(e.videoId) || seen.has(e.videoId)) return;
+    seen.add(e.videoId);
+    shorts.push({ id: e.videoId, thumb: `https://i.ytimg.com/vi/${e.videoId}/oardefault.jpg` });
+  };
+  let sequence = token;
+  if (!sequence) {
+    const first = await api("reel/reel_item_watch", { params: "CA8%3D", disablePlayerResponse: true, inputType: "REEL_WATCH_INPUT_TYPE_SEEDLESS" }, signedIn);
+    if (first.status !== 200) return { status: first.status };
+    add(first.data.replacementEndpoint);
+    sequence = first.data.sequenceContinuation;
+    if (!sequence) return { status: 200, items: { shorts, next: null } };
+  }
+  const r = await api("reel/reel_watch_sequence", { sequenceParams: sequence }, signedIn);
+  if (r.status !== 200) return { status: r.status };
+  for (const entry of r.data.entries || []) add(entry.command);
+  const next = r.data.continuationEndpoint && r.data.continuationEndpoint.continuationCommand
+    ? r.data.continuationEndpoint.continuationCommand.token
+    : null;
+  return { status: 200, items: { shorts, next } };
+"#;
+
 const SEARCH: &str = r#"
   const r = await api("search", { query: __QUERY__ }, false);
   if (r.status !== 200) return { status: r.status };
@@ -705,6 +735,12 @@ pub async fn yt_history_remove(app: AppHandle, token: String) -> Result<Value, S
 #[tauri::command]
 pub async fn yt_home(app: AppHandle, token: Option<String>) -> Result<Value, String> {
     run(&app, &with_token(HOME, token)?).await
+}
+
+/// A batch of Shorts: `{ shorts: [{ id, thumb }], next }`.
+#[tauri::command]
+pub async fn yt_shorts(app: AppHandle, token: Option<String>) -> Result<Value, String> {
+    run(&app, &with_token(SHORTS, token)?).await
 }
 
 /// Search YouTube: `{ videos, channels }`.

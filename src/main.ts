@@ -18,6 +18,7 @@ import { AuthError, followedLive, validateToken } from "./twitch";
 import { loadKickSlugs, parseKickInput, saveKickSlugs } from "./kick";
 import { h } from "./ui";
 import { getVersion } from "@tauri-apps/api/app";
+import * as shorts from "./shorts";
 import { checkForUpdate, type Update } from "./updates";
 import * as browse from "./browse";
 import * as player from "./player";
@@ -668,6 +669,7 @@ async function ytSignOut() {
 
 function watchYoutube(v: yt.YtVideo) {
   state.error = "";
+  shorts.pause();
   for (const [oldId, p] of state.playing) if (p.inApp) state.playing.delete(oldId);
   player.resumeHint(v.id, v.resume ?? 0);
   const id = player.open("youtube", v.id, v.title);
@@ -675,11 +677,18 @@ function watchYoutube(v: yt.YtVideo) {
   render();
 }
 
+const shortsCtx: shorts.ShortsCtx = {
+  settings: () => state.settings,
+  openInPlayer: (id, title) =>
+    watchYoutube({ id, title, channel: "", channelId: null, live: false, duration: "", published: "", views: "", avatar: null }),
+};
+
 const ytCtx: yt.YtCtx = {
   render: () => render(),
   account: () => state.ytAccount,
   signIn: () => void ytSignIn(),
   watch: (v) => watchYoutube(v),
+  shorts: () => shorts.view(shortsCtx),
 };
 
 function ytSubnav(): HTMLElement {
@@ -692,6 +701,11 @@ function ytSubnav(): HTMLElement {
       "button",
       { class: `sub${page.kind === "home" ? " active" : ""}`, onclick: () => { yt.go({ kind: "home" }); render(); } },
       "Home",
+    ),
+    h(
+      "button",
+      { class: `sub${page.kind === "shorts" ? " active" : ""}`, onclick: () => { yt.go({ kind: "shorts" }); render(); } },
+      "Shorts",
     ),
     h(
       "button",
@@ -708,7 +722,7 @@ function ytSubnav(): HTMLElement {
       { class: `sub${page.kind === "later" ? " active" : ""}`, onclick: () => { yt.go({ kind: "later" }); render(); } },
       "Watch later",
     ),
-    h("button", { class: "small push", onclick: () => { yt.refresh(); render(); } }, "Refresh"),
+    h("button", { class: "small push", onclick: () => { if (page.kind === "shorts") shorts.refresh(); else yt.refresh(); render(); } }, "Refresh"),
   );
 }
 
@@ -1502,6 +1516,8 @@ function render() {
           ? crunchyrollView()
           : state.view === "youtube"
           ? (() => {
+              // the Shorts tab gets its first Shorts ready while you're elsewhere in YouTube
+              shorts.warmUp(shortsCtx);
               const main = h("main", {}, yt.content(ytCtx));
               main.prepend(ytSubnav());
               return main;
@@ -1534,6 +1550,7 @@ function render() {
     body,
     chatBar ?? "",
   );
+  shorts.pauseIfHidden();
   if (scroll !== null && window.scrollY !== scroll) window.scrollTo(0, scroll);
   if (searchFocused) {
     const search = document.getElementById("search") as HTMLInputElement | null;
