@@ -38,13 +38,14 @@ export interface YtAccount {
   avatar: string | null;
 }
 
-export type YtPage = { kind: "home" } | { kind: "subs" } | { kind: "history" } | { kind: "later" } | { kind: "search"; q: string } | { kind: "channel"; id: string };
+export type YtPage = { kind: "home" } | { kind: "shorts" } | { kind: "subs" } | { kind: "history" } | { kind: "later" } | { kind: "search"; q: string } | { kind: "channel"; id: string };
 
 export interface YtCtx {
   render(): void;
   account(): YtAccount | null;
   signIn(): void;
   watch(video: YtVideo): void;
+  shorts(): HTMLElement;
 }
 
 export let nav: YtPage[] = [{ kind: "home" }];
@@ -54,7 +55,7 @@ export function page(): YtPage {
 }
 
 export function go(p: YtPage): void {
-  if (p.kind === "subs" || p.kind === "home" || p.kind === "history" || p.kind === "later") nav = [p];
+  if (p.kind === "subs" || p.kind === "home" || p.kind === "shorts" || p.kind === "history" || p.kind === "later") nav = [p];
   else nav.push(p);
   window.scrollTo(0, 0);
 }
@@ -167,7 +168,7 @@ export function clearCache(): void {
 }
 
 function keyOf(p: YtPage): string {
-  return p.kind === "home" ? "home" : p.kind === "subs" ? "subs" : p.kind === "history" ? "history" : p.kind === "later" ? "later" : p.kind === "search" ? `search:${p.q}` : `channel:${p.id}`;
+  return p.kind === "home" ? "home" : p.kind === "shorts" ? "shorts" : p.kind === "subs" ? "subs" : p.kind === "history" ? "history" : p.kind === "later" ? "later" : p.kind === "search" ? `search:${p.q}` : `channel:${p.id}`;
 }
 
 function status(entry: Entry, empty: string, hasData: boolean): HTMLElement | null {
@@ -615,5 +616,6 @@ export function content(ctx: YtCtx): HTMLElement {
   if (p.kind === "history") return history(ctx);
   if (p.kind === "later") return watchLater(ctx);
   if (p.kind === "home") return home(ctx);
+  if (p.kind === "shorts") return ctx.shorts();
   return subs(ctx);
 }
