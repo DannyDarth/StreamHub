@@ -703,6 +703,11 @@ function ytSubnav(): HTMLElement {
       { class: `sub${page.kind === "history" ? " active" : ""}`, onclick: () => { yt.go({ kind: "history" }); render(); } },
       "History",
     ),
+    h(
+      "button",
+      { class: `sub${page.kind === "later" ? " active" : ""}`, onclick: () => { yt.go({ kind: "later" }); render(); } },
+      "Watch later",
+    ),
     h("button", { class: "small push", onclick: () => { yt.refresh(); render(); } }, "Refresh"),
   );
 }

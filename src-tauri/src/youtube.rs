@@ -115,7 +115,7 @@ const WRAPPER: &str = r#"
     const walk = (n) => {
       if (!n || typeof n !== "object") return;
       if (Array.isArray(n)) { n.forEach(walk); return; }
-      const v = n.videoRenderer || n.gridVideoRenderer || n.compactVideoRenderer;
+      const v = n.videoRenderer || n.gridVideoRenderer || n.compactVideoRenderer || n.playlistVideoRenderer;
       if (v && v.videoId && !seenV.has(v.videoId)) {
         seenV.add(v.videoId);
         const badges = JSON.stringify(v.badges || []) + JSON.stringify(v.thumbnailOverlays || []);
@@ -129,7 +129,7 @@ const WRAPPER: &str = r#"
           live,
           duration: text(v.lengthText) || "",
           published: text(v.publishedTimeText),
-          views: text(v.shortViewCountText) || text(v.viewCountText),
+          views: text(v.shortViewCountText) || text(v.viewCountText) || (text(v.videoInfo).split(/\s*[•·]\s*/)[0] || ""),
           avatar: firstThumb(v.channelThumbnailSupportedRenderers || v.channelThumbnail || null),
           // how far you got (on any device), from YouTube's red progress bar on the thumbnail
           resume: Number((badges.match(/"percentDurationWatched":(\d+)/) || [])[1] || 0),
@@ -355,6 +355,26 @@ const COMMENTS: &str = r#"
   return { status: 200, items: { comments, next, count, off: false } };
 "#;
 
+/// Your Watch later list, a page at a time.
+const WATCH_LATER: &str = r#"
+  const token = __TOKEN__;
+  const r = await api("browse", token ? { continuation: token } : { browseId: "VLWL" }, true);
+  if (r.status !== 200) return { status: r.status };
+  const { videos } = collect(r.data);
+  if (!token && !videos.length && /signInEndpoint|Sign in/.test(JSON.stringify(r.data).slice(0, 20000))) return { status: 401 };
+  return { status: 200, items: { videos, next: nextPage(r.data) } };
+"#;
+
+/// Add a video to, or take it off, your Watch later list.
+const WATCH_LATER_EDIT: &str = r#"
+  const videoId = __VIDEO__;
+  const add = __ADD__;
+  const action = add ? { action: "ACTION_ADD_VIDEO", addedVideoId: videoId } : { action: "ACTION_REMOVE_VIDEO_BY_VIDEO_ID", removedVideoId: videoId };
+  const r = await api("browse/edit_playlist", { playlistId: "WL", actions: [action] }, true);
+  if (r.status !== 200) return { status: r.status };
+  return /STATUS_SUCCEEDED/.test(JSON.stringify(r.data)) ? { status: 200, items: true } : { status: 500, error: "YouTube didn't change Watch later." };
+"#;
+
 /// Remove one video from your watch history (YouTube's own "Remove from watch history").
 const HISTORY_REMOVE: &str = r#"
   const token = __TOKEN__;
@@ -525,6 +545,24 @@ pub async fn yt_mark_watched(app: AppHandle, id: String) -> Result<Value, String
         return Err("Not a YouTube video".into());
     }
     run(&app, &MARK_WATCHED.replace("__VIDEO__", &serde_json::to_string(&id).unwrap())).await
+}
+
+/// Your Watch later list, a page at a time: `{ videos, next }`.
+#[tauri::command]
+pub async fn yt_watch_later(app: AppHandle, token: Option<String>) -> Result<Value, String> {
+    run(&app, &with_token(WATCH_LATER, token)?).await
+}
+
+/// Add a video to Watch later (`add`), or take it off.
+#[tauri::command]
+pub async fn yt_watch_later_edit(app: AppHandle, id: String, add: bool) -> Result<Value, String> {
+    if id.len() != 11 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err("Not a YouTube video".into());
+    }
+    let script = WATCH_LATER_EDIT
+        .replace("__VIDEO__", &serde_json::to_string(&id).unwrap())
+        .replace("__ADD__", if add { "true" } else { "false" });
+    run(&app, &script).await
 }
 
 /// A video's comments (Settings → YouTube → Show comments), a page at a time.

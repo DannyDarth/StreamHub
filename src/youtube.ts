@@ -38,7 +38,7 @@ export interface YtAccount {
   avatar: string | null;
 }
 
-export type YtPage = { kind: "home" } | { kind: "subs" } | { kind: "history" } | { kind: "search"; q: string } | { kind: "channel"; id: string };
+export type YtPage = { kind: "home" } | { kind: "subs" } | { kind: "history" } | { kind: "later" } | { kind: "search"; q: string } | { kind: "channel"; id: string };
 
 export interface YtCtx {
   render(): void;
@@ -54,7 +54,7 @@ export function page(): YtPage {
 }
 
 export function go(p: YtPage): void {
-  if (p.kind === "subs" || p.kind === "home" || p.kind === "history") nav = [p];
+  if (p.kind === "subs" || p.kind === "home" || p.kind === "history" || p.kind === "later") nav = [p];
   else nav.push(p);
   window.scrollTo(0, 0);
 }
@@ -167,7 +167,7 @@ export function clearCache(): void {
 }
 
 function keyOf(p: YtPage): string {
-  return p.kind === "home" ? "home" : p.kind === "subs" ? "subs" : p.kind === "history" ? "history" : p.kind === "search" ? `search:${p.q}` : `channel:${p.id}`;
+  return p.kind === "home" ? "home" : p.kind === "subs" ? "subs" : p.kind === "history" ? "history" : p.kind === "later" ? "later" : p.kind === "search" ? `search:${p.q}` : `channel:${p.id}`;
 }
 
 function status(entry: Entry, empty: string, hasData: boolean): HTMLElement | null {
@@ -189,9 +189,39 @@ function videoCard(ctx: YtCtx, v: YtVideo): HTMLElement {
         ctx.render();
       }
     : null;
+  // signed in: + Watch later on hover
+  const later =
+    ctx.account() && !v.live
+      ? h(
+          "button",
+          {
+            class: "yt-later",
+            title: "Save to your Watch later list",
+            onclick: (e) => {
+              e.stopPropagation();
+              const b = e.currentTarget as HTMLButtonElement;
+              b.disabled = true;
+              b.textContent = "Saving…";
+              invoke("yt_watch_later_edit", { id: v.id, add: true })
+                .then(() => {
+                  b.textContent = "✓ Watch later";
+                  b.classList.add("saved");
+                  cache.delete("later");
+                })
+                .catch((err) => {
+                  b.disabled = false;
+                  b.textContent = "Couldn't save: try again";
+                  b.title = String(err);
+                });
+            },
+          },
+          "+ Watch later",
+        )
+      : null;
   return h(
     "div",
     { class: "yt-card" },
+    later,
     h(
       "button",
       { class: "card", title: v.title, onclick: () => ctx.watch(v) },
@@ -361,6 +391,68 @@ function history(ctx: YtCtx): HTMLElement {
 
 type HistoryVideo = YtVideo & { day?: string; remove?: string | null };
 
+/** Your Watch later list (signed in), with Remove. */
+function watchLater(ctx: YtCtx): HTMLElement {
+  if (!ctx.account()) {
+    return h(
+      "div",
+      { class: "signin" },
+      h("h1", {}, "Watch later"),
+      h("p", { class: "muted" }, "Sign in to YouTube to see your Watch later list."),
+      h("button", { class: "yt-signin", onclick: () => ctx.signIn() }, "Sign in to YouTube"),
+    );
+  }
+  const entry = load(ctx, "later", () => invoke<Feed>("yt_watch_later"));
+  const videos = (entry.data as Feed | null)?.videos ?? [];
+  return h(
+    "div",
+    {},
+    status(entry, "Nothing in Watch later. Add videos with + Watch later on any video.", videos.length > 0),
+    videos.length
+      ? h(
+          "div",
+          { class: "grid yt-grid" },
+          ...videos.map((v) =>
+            removableCard(ctx, entry, v, "Take it off Watch later", () => invoke("yt_watch_later_edit", { id: v.id, add: false })),
+          ),
+        )
+      : null,
+    feedEnd(ctx, "later", "yt_watch_later", entry),
+  );
+}
+
+/** A card with a Remove button on hover. */
+function removableCard(ctx: YtCtx, entry: Entry, v: YtVideo, title: string, remove: () => Promise<unknown>): HTMLElement {
+  const card = videoCard(ctx, v);
+  const button = h(
+    "button",
+    {
+      class: "yt-remove",
+      title,
+      onclick: (e) => {
+        e.stopPropagation();
+        const b = e.currentTarget as HTMLButtonElement;
+        b.disabled = true;
+        b.textContent = "Removing…";
+        remove()
+          .then(() => {
+            const feed = entry.data as Feed | null;
+            if (feed) entry.data = { ...feed, videos: feed.videos.filter((x) => x.id !== v.id) };
+            ctx.render();
+          })
+          .catch((err) => {
+            b.disabled = false;
+            b.textContent = "Couldn't remove: try again";
+            b.title = String(err);
+          });
+      },
+    },
+    "× Remove",
+  );
+  card.append(button);
+  return card;
+}
+
 /** A history video with a Remove button (YouTube's "Remove from watch history"). */
 function historyCard(ctx: YtCtx, entry: Entry, v: HistoryVideo): HTMLElement {
   const card = videoCard(ctx, v);
@@ -458,6 +550,7 @@ export function content(ctx: YtCtx): HTMLElement {
   if (p.kind === "search") return search(ctx, p.q);
   if (p.kind === "channel") return channel(ctx, p.id);
   if (p.kind === "history") return history(ctx);
+  if (p.kind === "later") return watchLater(ctx);
   if (p.kind === "home") return home(ctx);
   return subs(ctx);
 }
